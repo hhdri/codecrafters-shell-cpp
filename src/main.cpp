@@ -10,6 +10,12 @@ int main() {
     std::cout << "$ ";
     std::string command;
     std::cin >> command;
-    std::cout << command << ": command not found" << std::endl;
+    if (command == "exit") {
+      int exitStatus;
+      std::cin >> exitStatus;
+      return exitStatus;
+    } else {
+      std::cout << command << ": command not found" << std::endl;
+    }
   }
 }
