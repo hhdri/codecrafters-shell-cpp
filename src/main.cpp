@@ -18,12 +18,10 @@ int main() {
     else if (command == "echo") {
       std::string echoResult;
       std:getline(std::cin, echoResult);
-      // std::string echoPiece;
-      // do {
-      //   std::cin >> echoPiece;
-      //   echoResult += " " + echoPiece;
-      // } while (echoPiece != "\n");
-      std::cout << echoResult << std::endl;
+      int startIdx = 0;
+      while (echoResult[startIdx] == ' ')
+        startIdx++;
+      std::cout << echoResult.substr(startIdx, echoResult.length() - startIdx) << std::endl;
     }
      else {
       std::cout << command << ": command not found" << std::endl;
