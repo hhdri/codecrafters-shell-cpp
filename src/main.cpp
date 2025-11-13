@@ -49,30 +49,24 @@ int main() {
     std::string args_str;
     std::getline(std::cin, args_str);
     std::vector<std::string> args;
-    std::string curr_arg = "";
+    args.push_back("");
     auto it = args_str.begin();
     bool ongoing_quote = false;
     do {
       if (*it == '\'') {
-        if (ongoing_quote) {
-          args.push_back(curr_arg);
-          curr_arg = "";
-        }
         ongoing_quote = !ongoing_quote;
         it++;
       }
       else if (*it == ' ' && !ongoing_quote) {
-        args.push_back(curr_arg);
-        curr_arg = "";
+        args.push_back("");
         while (*it == ' ' && it != args_str.end())
           it++;
       }
       else {
-        curr_arg += *it;
+        args[args.size() - 1] += *it;
         it++;
       }
     } while (it != args_str.end());
-    args.push_back(curr_arg);
     auto command = args[0];
 
     if (command == "exit") {
