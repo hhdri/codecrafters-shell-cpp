@@ -35,8 +35,10 @@ int main() {
     else if (command == "type") {
       std::string arg;
       std::cin >> arg;
-      if (arg == "exit" || arg == "echo" || arg == "type")
+      if (arg == "exit" || arg == "echo" || arg == "type") {
         std::cout << arg << " is a shell builtin\n";
+        continue;
+      }
       std::string path = std::getenv("PATH");
       // std::cout << path << '\n';
       std::vector<std::string> pathParts;
