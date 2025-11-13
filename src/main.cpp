@@ -33,7 +33,7 @@ std::string find_exe(std::string &stem) {
       if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
         continue;
       if (entry.path().stem().string() == stem)
-        return entry.path().string();
+        return entry.path().stem().string();
     }
   }
   return "";
