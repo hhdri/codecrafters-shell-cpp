@@ -39,6 +39,13 @@ std::string find_exe(std::string &stem) {
   return "";
 }
 
+std::string resolve_escape_chars(std::string in) {
+  int pos;
+  while((pos = in.find("\\ ")) != std::string::npos)
+    in = in.replace(pos, 2, " ");
+    return in;
+}
+
 int main() {
   // Flush after every std::cout / std:cerr
   std::cout << std::unitbuf;
@@ -93,7 +100,7 @@ int main() {
     }
     else if (command == "echo") {
       for (int i = 1; i < args.size(); i++)
-        std::cout << args[i] << ' ';
+        std::cout << resolve_escape_chars(args[i]) << ' ';
       std::cout << '\n';
     }
     else if (command == "type") {
