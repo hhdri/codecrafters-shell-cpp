@@ -48,7 +48,6 @@ int main() {
     std::cout << "$ ";
     std::string command;
     std::cin >> command;
-    auto command_exe = find_exe(command);
     if (command == "exit") {
       int exitStatus;
       std::cin >> exitStatus;
@@ -76,7 +75,7 @@ int main() {
       else
         std::cout << arg << " is " << exe_path << '\n';
     }
-    else if (command_exe != "") {
+    else if (find_exe(command) != "") {
       std::string exe_args;
       std::getline(std::cin, exe_args);
       std::system((command + std::string(" ") + exe_args).c_str());
