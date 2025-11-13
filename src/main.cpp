@@ -53,6 +53,9 @@ int main() {
       std::cin >> exitStatus;
       return exitStatus;
     }
+    else if (command == "pwd") {
+      std::cout << fs::current_path().string() << '\n';
+    }
     else if (command == "echo") {
       std::string echoResult;
       std:getline(std::cin, echoResult);
@@ -64,7 +67,7 @@ int main() {
     else if (command == "type") {
       std::string arg;
       std::cin >> arg;
-      if (arg == "exit" || arg == "echo" || arg == "type") {
+      if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
         std::cout << arg << " is a shell builtin\n";
         continue;
       }
