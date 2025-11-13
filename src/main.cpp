@@ -46,19 +46,44 @@ int main() {
 
   while (true) {
     std::cout << "$ ";
-    std::string command;
-    std::cin >> command;
+    std::string args_str;
+    std::getline(std::cin, args_str);
+    std::vector<std::string> args;
+    std::string curr_arg = "";
+    auto it = args_str.begin();
+    bool ongoing_quote = false;
+    do {
+      if (*it == '\'') {
+        if (ongoing_quote) {
+          args.push_back(curr_arg);
+          curr_arg = "";
+        }
+        ongoing_quote = !ongoing_quote;
+        it++;
+      }
+      else if (*it == ' ' && !ongoing_quote) {
+        args.push_back(curr_arg);
+        curr_arg = "";
+        while (*it == ' ' && it != args_str.end())
+          it++;
+      }
+      else {
+        curr_arg += *it;
+        it++;
+      }
+    } while (it != args_str.end());
+    args.push_back(curr_arg);
+    auto command = args[0];
+
     if (command == "exit") {
-      int exitStatus;
-      std::cin >> exitStatus;
+      int exitStatus = std::stoi(args[1]);
       return exitStatus;
     }
     else if (command == "pwd") {
       std::cout << fs::current_path().string() << '\n';
     }
     else if (command == "cd") {
-      std::string path_str;
-      std::cin >> path_str; 
+      std::string path_str = args[1];
       auto tilde_pos = path_str.find("~");
       if (tilde_pos != std::string::npos) {
         auto home_path_str = std::getenv("HOME");
@@ -71,16 +96,12 @@ int main() {
         std::cout << "cd: " << path_str << ": No such file or directory\n";
     }
     else if (command == "echo") {
-      std::string echoResult;
-      std:getline(std::cin, echoResult);
-      int startIdx = 0;
-      while (echoResult[startIdx] == ' ')
-        startIdx++;
-      std::cout << echoResult.substr(startIdx, echoResult.length() - startIdx) << std::endl;
+      for (int i = 1; i < args.size(); i++)
+        std::cout << args[i] << ' ';
+      std::cout << '\n';
     }
     else if (command == "type") {
-      std::string arg;
-      std::cin >> arg;
+      std::string arg = args[1];
       if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
         std::cout << arg << " is a shell builtin\n";
         continue;
@@ -93,9 +114,10 @@ int main() {
         std::cout << arg << " is " << exe_path << '\n';
     }
     else if (find_exe(command) != "") {
-      std::string exe_args;
-      std::getline(std::cin, exe_args);
-      std::system((command + std::string(" ") + exe_args).c_str());
+      std::string exe_args = args[0];
+      for (int i = 1; i < args.size(); i++)
+        exe_args += " " + args[i];
+      std::system(exe_args.c_str());
     }
     else {
       std::cout << command << ": command not found\n";
