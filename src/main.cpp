@@ -71,7 +71,7 @@ int main() {
       
       auto exe_path = find_exe(arg);
       if (exe_path == "")
-        std::cout << arg << ": not found\n";
+        std::cout << arg << ": not foundd\n";
       else
         std::cout << arg << " is " << exe_path << '\n';
     }
