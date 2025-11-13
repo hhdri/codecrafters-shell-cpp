@@ -56,6 +56,15 @@ int main() {
     else if (command == "pwd") {
       std::cout << fs::current_path().string() << '\n';
     }
+    else if (command == "cd") {
+      std::string path_str;
+      std::cin >> path_str; 
+      fs::path cd_path(path_str);
+      if (fs::exists(cd_path))
+        fs::current_path(cd_path);
+      else
+        std::cout << "cd: " << path_str << " : No such file or directory\n";
+    }
     else if (command == "echo") {
       std::string echoResult;
       std:getline(std::cin, echoResult);
