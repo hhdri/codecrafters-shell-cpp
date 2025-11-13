@@ -59,6 +59,11 @@ int main() {
     else if (command == "cd") {
       std::string path_str;
       std::cin >> path_str; 
+      auto tilde_pos = path_str.find("~");
+      if (tilde_pos != std::string::npos) {
+        auto home_path_str = std::getenv("HOME");
+        path_str = path_str.replace(tilde_pos, 1, home_path_str);
+      }
       fs::path cd_path(path_str);
       if (fs::exists(cd_path))
         fs::current_path(cd_path);
