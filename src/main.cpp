@@ -11,6 +11,34 @@ constexpr char path_list_sep = ':';
 
 namespace fs = std::filesystem;
 
+
+std::string find_exe(std::string &stem) {
+  std::string path = std::getenv("PATH");
+  std::vector<std::string> pathParts;
+  std::string pathPartCurr = "";
+  for (char pathChar: path) {
+    if (pathChar == path_list_sep) {
+      pathParts.push_back(pathPartCurr);
+      pathPartCurr = "";
+      continue;
+    }
+    pathPartCurr += pathChar;
+  }
+  pathParts.push_back(pathPartCurr);
+
+  for (auto pathPart: pathParts) {
+    if (!fs::exists(fs::path(pathPart)))
+      continue;
+    for (const auto & entry : fs::directory_iterator{pathPart}) {
+      if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
+        continue;
+      if (entry.path().stem().string() == stem)
+        return entry.path().string();
+    }
+  }
+  return "";
+}
+
 int main() {
   // Flush after every std::cout / std:cerr
   std::cout << std::unitbuf;
@@ -40,41 +68,15 @@ int main() {
         std::cout << arg << " is a shell builtin\n";
         continue;
       }
-
-      std::string path = std::getenv("PATH");
-      std::vector<std::string> pathParts;
-      std::string pathPartCurr = "";
-      for (char pathChar: path) {
-        if (pathChar == path_list_sep) {
-          pathParts.push_back(pathPartCurr);
-          pathPartCurr = "";
-          continue;
-        }
-        pathPartCurr += pathChar;
-      }
-      pathParts.push_back(pathPartCurr);
-
-      bool isFound = false;
-      for (auto pathPart: pathParts) {
-        if (!fs::exists(fs::path(pathPart)))
-          continue;
-        for (const auto & entry : fs::directory_iterator{pathPart}) {
-          if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
-            continue;
-          if (entry.path().stem().string() == arg) {
-            std::cout << arg << " is " << entry.path().string() << '\n';
-            isFound = true;
-            break;
-          }
-        }
-        if (isFound)
-          break;
-      }
-      if (!isFound)
+      
+      auto exe_path = find_exe(arg);
+      if (exe_path == "")
         std::cout << arg << ": not found\n";
+      else
+        std::cout << arg << " is " << exe_path << '\n';
     }
      else {
-      std::cout << command << ": command not found" << std::endl;
+      std::cout << command << ": command not found\n";
     }
   }
 }
