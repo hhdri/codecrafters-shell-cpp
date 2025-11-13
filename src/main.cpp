@@ -48,6 +48,7 @@ int main() {
     std::cout << "$ ";
     std::string command;
     std::cin >> command;
+    auto command_exe = find_exe(command);
     if (command == "exit") {
       int exitStatus;
       std::cin >> exitStatus;
@@ -71,11 +72,16 @@ int main() {
       
       auto exe_path = find_exe(arg);
       if (exe_path == "")
-        std::cout << arg << ": not foundd\n";
+        std::cout << arg << ": not foundd\n"; // TODO: fix this
       else
         std::cout << arg << " is " << exe_path << '\n';
     }
-     else {
+    else if (command_exe != "") {
+      std::string exe_args;
+      std::getline(std::cin, exe_args);
+      std::system((command_exe + std::string(" ") + exe_args).c_str());
+    }
+    else {
       std::cout << command << ": command not found\n";
     }
   }
