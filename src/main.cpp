@@ -33,7 +33,7 @@ std::string find_exe(std::string &stem) {
       if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
         continue;
       if (entry.path().stem().string() == stem)
-        return entry.path().stem().string();
+        return entry.path().string();
     }
   }
   return "";
@@ -79,7 +79,7 @@ int main() {
     else if (command_exe != "") {
       std::string exe_args;
       std::getline(std::cin, exe_args);
-      std::system((command_exe + std::string(" ") + exe_args).c_str());
+      std::system((command + std::string(" ") + exe_args).c_str());
     }
     else {
       std::cout << command << ": command not found\n";
