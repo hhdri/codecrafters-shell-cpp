@@ -9,6 +9,7 @@ constexpr char path_list_sep = ';';
 constexpr char path_list_sep = ':';
 #endif
 
+namespace fs = std::filesystem;
 
 int main() {
   // Flush after every std::cout / std:cerr
@@ -39,27 +40,26 @@ int main() {
         std::cout << arg << " is a shell builtin\n";
         continue;
       }
+
       std::string path = std::getenv("PATH");
-      // std::cout << path << '\n';
       std::vector<std::string> pathParts;
       std::string pathPartCurr = "";
       for (char pathChar: path) {
         if (pathChar == path_list_sep) {
           pathParts.push_back(pathPartCurr);
           pathPartCurr = "";
+          continue;
         }
-        else
-          pathPartCurr += pathChar;
+        pathPartCurr += pathChar;
       }
       pathParts.push_back(pathPartCurr);
 
       bool isFound = false;
       for (auto pathPart: pathParts) {
-        // std::cout << pathPart << '\n';
-        if (! std::filesystem::exists(std::filesystem::path(pathPart)))
+        if (!fs::exists(fs::path(pathPart)))
           continue;
-        for (const auto & entry : std::filesystem::directory_iterator{pathPart}) {
-          if ((entry.status().permissions() & std::filesystem::perms::owner_exec) == std::filesystem::perms::none)
+        for (const auto & entry : fs::directory_iterator{pathPart}) {
+          if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
             continue;
           if (entry.path().stem().string() == arg) {
             std::cout << arg << " is " << entry.path().string() << '\n';
