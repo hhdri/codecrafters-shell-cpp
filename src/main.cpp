@@ -63,7 +63,7 @@ int main() {
       if (fs::exists(cd_path))
         fs::current_path(cd_path);
       else
-        std::cout << "cd: " << path_str << " : No such file or directory\n";
+        std::cout << "cd: " << path_str << ": No such file or directory\n";
     }
     else if (command == "echo") {
       std::string echoResult;
