@@ -43,6 +43,8 @@ std::string resolve_escape_chars(std::string in) {
   int pos;
   while((pos = in.find("\\ ")) != std::string::npos)
     in = in.replace(pos, 2, " ");
+  while((pos = in.find("\\'")) != std::string::npos)
+    in = in.replace(pos, 2, "'");
     return in;
 }
 
@@ -58,19 +60,24 @@ int main() {
     std::vector<std::string> args;
     args.push_back("");
     auto it = args_str.begin();
-    bool ongoing_quote = false;
+    bool ongoing_single_quote = false;
+    bool ongoing_double_quote = false;
     do {
-      if (*it == '\'') {
-        ongoing_quote = !ongoing_quote;
+      if (*it == '\'' && !ongoing_double_quote) {
+        ongoing_single_quote = !ongoing_single_quote;
         it++;
       }
-      else if (*it == ' ' && !ongoing_quote) {
+      else if (*it == '"') {
+        ongoing_double_quote = !ongoing_double_quote;
+        it++;
+      }
+      else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
         args.push_back("");
         while (*it == ' ' && it != args_str.end())
           it++;
       }
       else {
-        if (*it == ' ')
+        if (*it == ' ' || *it == '\'')
           args[args.size() - 1] += '\\';
         args[args.size() - 1] += *it;
         it++;
