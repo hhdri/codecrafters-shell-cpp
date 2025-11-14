@@ -113,6 +113,19 @@ void handle_cd(const vector<string> &args) {
     std::cout << "cd: " << path_str << ": No such file or directory\n";
 }
 
+void handle_type(const vector<string> &args) {
+  const string &arg = args[1];
+  if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
+    std::cout << arg << " is a shell builtin\n";
+    return;
+  }
+
+  if (const auto exe_path = find_exe(arg); exe_path.empty())
+    std::cout << arg << ": not found\n";
+  else
+    std::cout << arg << " is " << exe_path << '\n';
+}
+
 string escape_special_chars(const string &in) {
   string result;
   for (auto ch: in) {
@@ -132,7 +145,7 @@ int main() {
     std::cout << "$ ";
     string args_str;
     std::getline(std::cin, args_str);
-    vector<string> args = parse_args(args_str);
+    const vector<string> args = parse_args(args_str);
 
     if (args[0] == "exit") {
       int exit_status = 0;
@@ -143,32 +156,19 @@ int main() {
 
     if (args[0] == "pwd")
       handle_pwd();
-    else if (args[0] == "cd") {
+    else if (args[0] == "cd")
       handle_cd(args);
-    }
     else if (args[0] == "echo")
       handle_echo(args);
-    else if (args[0] == "type") {
-      const string &arg = args[1];
-      if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
-        std::cout << arg << " is a shell builtin\n";
-        continue;
-      }
-      
-      auto exe_path = find_exe(arg);
-      if (exe_path.empty())
-        std::cout << arg << ": not found\n";
-      else
-        std::cout << arg << " is " << exe_path << '\n';
-    }
+    else if (args[0] == "type")
+      handle_type(args);
     else if (!find_exe(args[0]).empty()) {
       string exe_args = escape_special_chars(args[0]);
       for (int i = 1; i < args.size(); i++)
         exe_args += " " + escape_special_chars(args[i]);
       std::system(exe_args.c_str());
     }
-    else {
+    else
       std::cout << args[0] << ": command not found\n";
-    }
   }
 }
