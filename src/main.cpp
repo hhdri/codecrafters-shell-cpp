@@ -142,7 +142,7 @@ int main() {
         std::cout << arg << " is " << exe_path << '\n';
     }
     else if (find_exe(args[0]) != "") {
-      std::string exe_args = args[0];
+      std::string exe_args = escape_special_chars(args[0]);
       for (int i = 1; i < args.size(); i++)
         exe_args += " " + escape_special_chars(args[i]);
       std::system(exe_args.c_str());
