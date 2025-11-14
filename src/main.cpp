@@ -40,7 +40,7 @@ std::string find_exe(const std::string &stem) {
   return "";
 }
 
-void handle_echo(std::vector<std::string> &args) {
+void handle_echo(const std::vector<std::string> &args) {
   auto output_ostream = &(std::cout);
   std::ofstream output_file;
 
@@ -54,6 +54,22 @@ void handle_echo(std::vector<std::string> &args) {
     *output_ostream << args[i] << ' ';
   }
   *output_ostream << '\n';
+}
+
+void handle_pwd() {
+  std::cout << fs::current_path().string() << '\n';
+}
+
+void handle_cd(const std::vector<std::string> &args) {
+  std::string path_str = args[1];
+  if (const auto tilde_pos = path_str.find('~'); tilde_pos != std::string::npos) {
+    const auto home_path_str = std::getenv("HOME");
+    path_str = path_str.replace(tilde_pos, 1, home_path_str);
+  }
+  if (const fs::path cd_path(path_str); fs::exists(cd_path))
+    fs::current_path(cd_path);
+  else
+    std::cout << "cd: " << path_str << ": No such file or directory\n";
 }
 
 std::string escape_special_chars(const std::string &in) {
@@ -112,24 +128,16 @@ int main() {
     } while (it != args_str.end());
 
     if (args[0] == "exit") {
-      int exitStatus = std::stoi(args[1]);
-      return exitStatus;
+      int exit_status = 0;
+      if (args.size() > 1)
+        exit_status = std::stoi(args[1]);
+      return exit_status;
     }
-    else if (args[0] == "pwd") {
-      std::cout << fs::current_path().string() << '\n';
-    }
+
+    if (args[0] == "pwd")
+      handle_pwd();
     else if (args[0] == "cd") {
-      std::string path_str = args[1];
-      auto tilde_pos = path_str.find('~');
-      if (tilde_pos != std::string::npos) {
-        auto home_path_str = std::getenv("HOME");
-        path_str = path_str.replace(tilde_pos, 1, home_path_str);
-      }
-      fs::path cd_path(path_str);
-      if (fs::exists(cd_path))
-        fs::current_path(cd_path);
-      else
-        std::cout << "cd: " << path_str << ": No such file or directory\n";
+      handle_cd(args);
     }
     else if (args[0] == "echo")
       handle_echo(args);
