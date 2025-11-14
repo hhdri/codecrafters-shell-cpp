@@ -81,7 +81,7 @@ int main() {
         ongoing_single_quote = !ongoing_single_quote;
         it++;
       }
-      else if (*it == '"') {
+      else if (*it == '"' && !ongoing_single_quote) {
         ongoing_double_quote = !ongoing_double_quote;
         it++;
       }
