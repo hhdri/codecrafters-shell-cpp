@@ -85,14 +85,19 @@ void handle_echo(const vector<string> &args) {
   auto output_ostream = &(std::cout);
   std::ofstream output_file;
 
-  auto stdout_pipe_idx = std::find(args.begin(), args.end(), ">");
-  stdout_pipe_idx = std::min(stdout_pipe_idx, std::find(args.begin(), args.end(), "1>"));
-  if (stdout_pipe_idx < args.end() - 1) {
-    output_file.open(*(stdout_pipe_idx + 1));
+  auto stdout_redir_idx = std::find(args.begin(), args.end(), ">");
+  stdout_redir_idx = std::min(stdout_redir_idx, std::find(args.begin(), args.end(), "1>"));
+  if (stdout_redir_idx < args.end() - 1) {
+    output_file.open(*(stdout_redir_idx + 1));
     output_ostream = &output_file;
   }
-  stdout_pipe_idx = std::min(stdout_pipe_idx, std::find(args.begin(), args.end(), "2>"));
-  for (int i = 1; i < stdout_pipe_idx - args.begin(); i++) {
+
+  auto stderr_redir_idx = std::find(args.begin(), args.end(), "2>");
+  if (stderr_redir_idx < args.end() - 1) {
+    std::ofstream file(*(stderr_redir_idx + 1), std::ios::app);
+  }
+
+  for (int i = 1; i < std::min(stdout_redir_idx, stderr_redir_idx) - args.begin(); i++) {
     *output_ostream << args[i] << ' ';
   }
   *output_ostream << '\n';
