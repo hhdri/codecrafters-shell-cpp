@@ -77,6 +77,13 @@ int main() {
         args[args.size() - 1] += *(++it);
         it++;
       }
+      else if (*it == '\\' && ongoing_double_quote) {
+        it++;
+        if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
+          args[args.size() - 1] += '\\';
+        args[args.size() - 1] += *it;
+        it++;
+      }
       else if (*it == '\'' && !ongoing_double_quote) {
         ongoing_single_quote = !ongoing_single_quote;
         it++;
@@ -95,16 +102,15 @@ int main() {
         it++;
       }
     } while (it != args_str.end());
-    auto command = args[0];
 
-    if (command == "exit") {
+    if (args[0] == "exit") {
       int exitStatus = std::stoi(args[1]);
       return exitStatus;
     }
-    else if (command == "pwd") {
+    else if (args[0] == "pwd") {
       std::cout << fs::current_path().string() << '\n';
     }
-    else if (command == "cd") {
+    else if (args[0] == "cd") {
       std::string path_str = args[1];
       auto tilde_pos = path_str.find("~");
       if (tilde_pos != std::string::npos) {
@@ -117,12 +123,12 @@ int main() {
       else
         std::cout << "cd: " << path_str << ": No such file or directory\n";
     }
-    else if (command == "echo") {
+    else if (args[0] == "echo") {
       for (int i = 1; i < args.size(); i++)
         std::cout << args[i] << ' ';
       std::cout << '\n';
     }
-    else if (command == "type") {
+    else if (args[0] == "type") {
       std::string arg = args[1];
       if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
         std::cout << arg << " is a shell builtin\n";
@@ -135,14 +141,14 @@ int main() {
       else
         std::cout << arg << " is " << exe_path << '\n';
     }
-    else if (find_exe(command) != "") {
+    else if (find_exe(args[0]) != "") {
       std::string exe_args = args[0];
       for (int i = 1; i < args.size(); i++)
         exe_args += " " + escape_special_chars(args[i]);
       std::system(exe_args.c_str());
     }
     else {
-      std::cout << command << ": command not found\n";
+      std::cout << args[0] << ": command not found\n";
     }
   }
 }
