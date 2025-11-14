@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <fstream>
 
 #ifdef _WIN32
 constexpr char path_list_sep = ';';
@@ -39,14 +40,21 @@ std::string find_exe(std::string &stem) {
   return "";
 }
 
-// std::string resolve_escape_chars(std::string in) {
-//   int pos;
-//   while((pos = in.find("\\ ")) != std::string::npos)
-//     in = in.replace(pos, 2, " ");
-//   while((pos = in.find("\\'")) != std::string::npos)
-//     in = in.replace(pos, 2, "'");
-//     return in;
-// }
+void handle_echo(std::vector<std::string> &args) {
+  auto output_ostream = &(std::cout);
+  std::ofstream output_file;
+
+  auto stdout_pipe_idx = std::find(args.begin(), args.end(), ">");
+  stdout_pipe_idx = std::min(stdout_pipe_idx, std::find(args.begin(), args.end(), "1>"));
+  if (stdout_pipe_idx < args.end() - 1) {
+    output_file.open(*(stdout_pipe_idx + 1));
+    output_ostream = &output_file;
+  }
+  for (int i = 1; i < stdout_pipe_idx - args.begin(); i++) {
+    *output_ostream << args[i] << ' ';
+  }
+  *output_ostream << '\n';
+}
 
 std::string escape_special_chars(std::string in) {
   std::string result = "";
@@ -123,11 +131,8 @@ int main() {
       else
         std::cout << "cd: " << path_str << ": No such file or directory\n";
     }
-    else if (args[0] == "echo") {
-      for (int i = 1; i < args.size(); i++)
-        std::cout << args[i] << ' ';
-      std::cout << '\n';
-    }
+    else if (args[0] == "echo")
+      handle_echo(args);
     else if (args[0] == "type") {
       std::string arg = args[1];
       if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
