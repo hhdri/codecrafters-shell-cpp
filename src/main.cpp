@@ -91,8 +91,6 @@ int main() {
           it++;
       }
       else {
-        //if (*it == ' ' || *it == '\'')
-        //  args[args.size() - 1] += '\\';
         args[args.size() - 1] += *it;
         it++;
       }
