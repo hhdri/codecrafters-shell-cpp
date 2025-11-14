@@ -39,13 +39,23 @@ std::string find_exe(std::string &stem) {
   return "";
 }
 
-std::string resolve_escape_chars(std::string in) {
-  int pos;
-  while((pos = in.find("\\ ")) != std::string::npos)
-    in = in.replace(pos, 2, " ");
-  while((pos = in.find("\\'")) != std::string::npos)
-    in = in.replace(pos, 2, "'");
-    return in;
+// std::string resolve_escape_chars(std::string in) {
+//   int pos;
+//   while((pos = in.find("\\ ")) != std::string::npos)
+//     in = in.replace(pos, 2, " ");
+//   while((pos = in.find("\\'")) != std::string::npos)
+//     in = in.replace(pos, 2, "'");
+//     return in;
+// }
+
+std::string escape_special_chars(std::string in) {
+  std::string result = "";
+  for (auto ch: in) {
+    if (ch == ' ' || ch == '\'' || ch == '\"' || ch == '\\')
+      result += '\\';
+    result += ch;
+  }
+  return result;
 }
 
 int main() {
@@ -63,7 +73,11 @@ int main() {
     bool ongoing_single_quote = false;
     bool ongoing_double_quote = false;
     do {
-      if (*it == '\'' && !ongoing_double_quote) {
+      if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
+        args[args.size() - 1] += *(++it);
+        it++;
+      }
+      else if (*it == '\'' && !ongoing_double_quote) {
         ongoing_single_quote = !ongoing_single_quote;
         it++;
       }
@@ -77,8 +91,8 @@ int main() {
           it++;
       }
       else {
-        if (*it == ' ' || *it == '\'')
-          args[args.size() - 1] += '\\';
+        //if (*it == ' ' || *it == '\'')
+        //  args[args.size() - 1] += '\\';
         args[args.size() - 1] += *it;
         it++;
       }
@@ -107,7 +121,7 @@ int main() {
     }
     else if (command == "echo") {
       for (int i = 1; i < args.size(); i++)
-        std::cout << resolve_escape_chars(args[i]) << ' ';
+        std::cout << args[i] << ' ';
       std::cout << '\n';
     }
     else if (command == "type") {
@@ -126,7 +140,7 @@ int main() {
     else if (find_exe(command) != "") {
       std::string exe_args = args[0];
       for (int i = 1; i < args.size(); i++)
-        exe_args += " " + args[i];
+        exe_args += " " + escape_special_chars(args[i]);
       std::system(exe_args.c_str());
     }
     else {
