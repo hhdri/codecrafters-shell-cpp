@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <fstream>
 
+using std::string, std::vector;
+
 #ifdef _WIN32
 constexpr char path_list_sep = ';';
 #else
@@ -12,11 +14,50 @@ constexpr char path_list_sep = ':';
 
 namespace fs = std::filesystem;
 
+vector<string> parse_args(const string &args_str) {
+  vector<string> args;
+  args.emplace_back("");
+  auto it = args_str.begin();
+  bool ongoing_single_quote = false;
+  bool ongoing_double_quote = false;
+  do {
+    if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
+      args[args.size() - 1] += *(++it);
+      ++it;
+    }
+    else if (*it == '\\' && ongoing_double_quote) {
+      ++it;
+      if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
+        args[args.size() - 1] += '\\';
+      args[args.size() - 1] += *it;
+      ++it;
+    }
+    else if (*it == '\'' && !ongoing_double_quote) {
+      ongoing_single_quote = !ongoing_single_quote;
+      ++it;
+    }
+    else if (*it == '"' && !ongoing_single_quote) {
+      ongoing_double_quote = !ongoing_double_quote;
+      ++it;
+    }
+    else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
+      args.emplace_back("");
+      while (*it == ' ' && it != args_str.end())
+        ++it;
+    }
+    else {
+      args[args.size() - 1] += *it;
+      ++it;
+    }
+  } while (it != args_str.end());
+  return args;
+}
 
-std::string find_exe(const std::string &stem) {
-  std::string path = std::getenv("PATH");
-  std::vector<std::string> pathParts;
-  std::string pathPartCurr;
+
+string find_exe(const string &stem) {
+  string path = std::getenv("PATH");
+  vector<string> pathParts;
+  string pathPartCurr;
   for (char pathChar: path) {
     if (pathChar == path_list_sep) {
       pathParts.push_back(pathPartCurr);
@@ -40,7 +81,7 @@ std::string find_exe(const std::string &stem) {
   return "";
 }
 
-void handle_echo(const std::vector<std::string> &args) {
+void handle_echo(const vector<string> &args) {
   auto output_ostream = &(std::cout);
   std::ofstream output_file;
 
@@ -60,9 +101,9 @@ void handle_pwd() {
   std::cout << fs::current_path().string() << '\n';
 }
 
-void handle_cd(const std::vector<std::string> &args) {
-  std::string path_str = args[1];
-  if (const auto tilde_pos = path_str.find('~'); tilde_pos != std::string::npos) {
+void handle_cd(const vector<string> &args) {
+  string path_str = args[1];
+  if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
     path_str = path_str.replace(tilde_pos, 1, home_path_str);
   }
@@ -72,8 +113,8 @@ void handle_cd(const std::vector<std::string> &args) {
     std::cout << "cd: " << path_str << ": No such file or directory\n";
 }
 
-std::string escape_special_chars(const std::string &in) {
-  std::string result;
+string escape_special_chars(const string &in) {
+  string result;
   for (auto ch: in) {
     if (ch == ' ' || ch == '\'' || ch == '\"' || ch == '\\')
       result += '\\';
@@ -89,43 +130,9 @@ int main() {
 
   while (true) {
     std::cout << "$ ";
-    std::string args_str;
+    string args_str;
     std::getline(std::cin, args_str);
-    std::vector<std::string> args;
-    args.emplace_back("");
-    auto it = args_str.begin();
-    bool ongoing_single_quote = false;
-    bool ongoing_double_quote = false;
-    do {
-      if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
-        args[args.size() - 1] += *(++it);
-        ++it;
-      }
-      else if (*it == '\\' && ongoing_double_quote) {
-        ++it;
-        if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
-          args[args.size() - 1] += '\\';
-        args[args.size() - 1] += *it;
-        ++it;
-      }
-      else if (*it == '\'' && !ongoing_double_quote) {
-        ongoing_single_quote = !ongoing_single_quote;
-        ++it;
-      }
-      else if (*it == '"' && !ongoing_single_quote) {
-        ongoing_double_quote = !ongoing_double_quote;
-        ++it;
-      }
-      else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
-        args.emplace_back("");
-        while (*it == ' ' && it != args_str.end())
-          ++it;
-      }
-      else {
-        args[args.size() - 1] += *it;
-        ++it;
-      }
-    } while (it != args_str.end());
+    vector<string> args = parse_args(args_str);
 
     if (args[0] == "exit") {
       int exit_status = 0;
@@ -142,7 +149,7 @@ int main() {
     else if (args[0] == "echo")
       handle_echo(args);
     else if (args[0] == "type") {
-      const std::string &arg = args[1];
+      const string &arg = args[1];
       if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
         std::cout << arg << " is a shell builtin\n";
         continue;
@@ -155,7 +162,7 @@ int main() {
         std::cout << arg << " is " << exe_path << '\n';
     }
     else if (!find_exe(args[0]).empty()) {
-      std::string exe_args = escape_special_chars(args[0]);
+      string exe_args = escape_special_chars(args[0]);
       for (int i = 1; i < args.size(); i++)
         exe_args += " " + escape_special_chars(args[i]);
       std::system(exe_args.c_str());
