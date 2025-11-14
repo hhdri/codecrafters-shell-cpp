@@ -91,6 +91,7 @@ void handle_echo(const vector<string> &args) {
     output_file.open(*(stdout_pipe_idx + 1));
     output_ostream = &output_file;
   }
+  stdout_pipe_idx = std::min(stdout_pipe_idx, std::find(args.begin(), args.end(), "2>"));
   for (int i = 1; i < stdout_pipe_idx - args.begin(); i++) {
     *output_ostream << args[i] << ' ';
   }
