@@ -10,12 +10,6 @@
 
 using std::string, std::vector;
 
-#ifdef _WIN32
-constexpr char path_list_sep = ';';
-#else
-constexpr char path_list_sep = ':';
-#endif
-
 namespace fs = std::filesystem;
 
 class ArgsParser {
@@ -112,30 +106,37 @@ public:
 };
 
 
-string find_exe(const string &stem) {
-  const string path = std::getenv("PATH");
-  vector<string> pathParts;
-  string pathPartCurr;
-  for (const char pathChar: path) {
-    if (pathChar == path_list_sep) {
-      pathParts.push_back(pathPartCurr);
-      pathPartCurr = "";
-      continue;
-    }
-    pathPartCurr += pathChar;
-  }
-  pathParts.push_back(pathPartCurr);
+vector<fs::directory_entry> find_all_exes() {
+  vector<fs::directory_entry> result;
 
+  const string path = std::getenv("PATH");
+  vector<string> pathParts{""};
+  for (const char pathChar: path) {
+    if (pathChar == ':')
+      pathParts.emplace_back("");
+    else
+      pathParts.back() += pathChar;
+  }
+
+  std::error_code ec;
   for (const auto& pathPart: pathParts) {
     if (!fs::exists(fs::path(pathPart)))
       continue;
     for (const auto & entry : fs::directory_iterator{pathPart}) {
-      if ((entry.status().permissions() & fs::perms::owner_exec) == fs::perms::none)
+      if (auto status = entry.status(ec); ec || (status.permissions() & fs::perms::owner_exec) == fs::perms::none) {
+        ec.clear();
         continue;
-      if (entry.path().stem().string() == stem)
-        return entry.path().string();
+      }
+      result.emplace_back(entry);
     }
   }
+  return result;
+}
+
+string find_exe(const string &stem) {
+  for (const auto all_exes = find_all_exes(); const auto& entry : all_exes)
+    if (entry.path().stem() == stem)
+      return entry.path().string();
   return "";
 }
 
@@ -186,27 +187,25 @@ string escape_special_chars(const string &in) {
   return result;
 }
 
-static const char* const commands[] = {
-  "echo",
-  "exit",
-  nullptr
-};
-
 static char* command_generator(const char* text, const int state) {
-  static size_t list_index;
+  static vector<string> commands;
+  static vector<string>::iterator current_command;
   static size_t len;
 
   if (state == 0) {
-    list_index = 0;
+    commands = {"echo", "exit", "type", "pwd"};
+    for (const auto all_exes = find_all_exes(); const auto& exe : all_exes)
+      if (std::ranges::find(commands, exe.path().stem().string()) == commands.end())
+        commands.emplace_back(exe.path().stem());
+
+    current_command = commands.begin();
     len = std::strlen(text);
   }
 
-  const char* name;
-  while ((name = commands[list_index++]) != nullptr) {
-    if (strncmp(name, text, len) == 0) {
-      return strdup(name);
-    }
-  }
+  vector<string>::iterator name;
+  while ((name = current_command++) != commands.end())
+    if (strncmp(name->c_str(), text, len) == 0)
+      return strdup(name->c_str());
 
   return nullptr;
 }
