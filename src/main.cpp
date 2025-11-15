@@ -1,8 +1,10 @@
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <__ranges/drop_view.h>
 
 using std::string, std::vector;
 
@@ -14,51 +16,105 @@ constexpr char path_list_sep = ':';
 
 namespace fs = std::filesystem;
 
-vector<string> parse_args(const string &args_str) {
+class ArgsParser {
+  string args_str;
+public:
   vector<string> args;
-  args.emplace_back("");
-  auto it = args_str.begin();
-  bool ongoing_single_quote = false;
-  bool ongoing_double_quote = false;
-  do {
-    if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
-      args[args.size() - 1] += *(++it);
-      ++it;
-    }
-    else if (*it == '\\' && ongoing_double_quote) {
-      ++it;
-      if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
-        args[args.size() - 1] += '\\';
-      args[args.size() - 1] += *it;
-      ++it;
-    }
-    else if (*it == '\'' && !ongoing_double_quote) {
-      ongoing_single_quote = !ongoing_single_quote;
-      ++it;
-    }
-    else if (*it == '"' && !ongoing_single_quote) {
-      ongoing_double_quote = !ongoing_double_quote;
-      ++it;
-    }
-    else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
-      args.emplace_back("");
-      while (*it == ' ' && it != args_str.end())
+  std::ostream *out_stream;
+  std::ostream *err_stream;
+  std::ofstream out_file;
+  std::ofstream err_file;
+  vector<string> args_trunc;
+
+private:
+  void parse_args() {
+    args.emplace_back("");
+    auto it = args_str.begin();
+    bool ongoing_single_quote = false;
+    bool ongoing_double_quote = false;
+    do {
+      if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
+        args[args.size() - 1] += *(++it);
         ++it;
+      }
+      else if (*it == '\\' && ongoing_double_quote) {
+        ++it;
+        if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
+          args[args.size() - 1] += '\\';
+        args[args.size() - 1] += *it;
+        ++it;
+      }
+      else if (*it == '\'' && !ongoing_double_quote) {
+        ongoing_single_quote = !ongoing_single_quote;
+        ++it;
+      }
+      else if (*it == '"' && !ongoing_single_quote) {
+        ongoing_double_quote = !ongoing_double_quote;
+        ++it;
+      }
+      else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
+        args.emplace_back("");
+        while (it != args_str.end() && *it == ' ')
+          ++it;
+      }
+      else {
+        args[args.size() - 1] += *it;
+        ++it;
+      }
+    } while (it != args_str.end());
+  }
+  void set_streams() {
+    auto redir_out_idx = std::min(
+      std::find(args.begin(), args.end(), ">"),
+      std::find(args.begin(), args.end(), "1>")
+    );
+    if (redir_out_idx < args.end() - 1) {
+      out_file.open(*(redir_out_idx + 1));
+      out_stream = &out_file;
     }
-    else {
-      args[args.size() - 1] += *it;
-      ++it;
+    auto redir_out_append_idx = std::min(
+      std::find(args.begin(), args.end(), ">>"),
+      std::find(args.begin(), args.end(), "1>>")
+    );
+    if (redir_out_append_idx < args.end() - 1) {
+      out_file.open(*(redir_out_append_idx + 1), std::ios::app);
+      out_stream = &out_file;
     }
-  } while (it != args_str.end());
-  return args;
-}
+    auto redir_err_idx = std::find(args.begin(), args.end(), "2>");
+    if (redir_err_idx < args.end() - 1) {
+      err_file.open(*(redir_err_idx + 1));
+      err_stream = &err_file;
+    }
+    auto redir_err_append_idx = std::find(args.begin(), args.end(), "2>>");
+    if (redir_err_append_idx < args.end() - 1) {
+      err_file.open(*(redir_err_append_idx + 1), std::ios::app);
+      err_stream = &err_file;
+    }
+
+    auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
+    end_idx = std::min(end_idx, redir_err_idx);
+    end_idx = std::min(end_idx, redir_err_append_idx);
+    for (auto i = args.begin(); i < end_idx; ++i)
+      args_trunc.emplace_back(*i);
+  }
+public:
+  explicit ArgsParser(string args_str) : args_str(std::move(args_str)) {
+    parse_args();
+    out_stream = &(std::cout);
+    err_stream = &(std::cerr);
+    set_streams();
+
+    *out_stream << std::unitbuf;
+    *err_stream << std::unitbuf;
+  }
+};
 
 
 string find_exe(const string &stem) {
-  string path = std::getenv("PATH");
+  const string path = std::getenv("PATH");
   vector<string> pathParts;
   string pathPartCurr;
-  for (char pathChar: path) {
+  for (const char pathChar: path) {
     if (pathChar == path_list_sep) {
       pathParts.push_back(pathPartCurr);
       pathPartCurr = "";
@@ -81,34 +137,20 @@ string find_exe(const string &stem) {
   return "";
 }
 
-void handle_echo(const vector<string> &args) {
-  auto output_ostream = &(std::cout);
-  std::ofstream output_file;
-
-  auto stdout_redir_idx = std::find(args.begin(), args.end(), ">");
-  stdout_redir_idx = std::min(stdout_redir_idx, std::find(args.begin(), args.end(), "1>"));
-  if (stdout_redir_idx < args.end() - 1) {
-    output_file.open(*(stdout_redir_idx + 1));
-    output_ostream = &output_file;
+void handle_echo(const ArgsParser &args_parser) {
+  for (const auto &arg: args_parser.args_trunc | std::ranges::views::drop(1)) {
+    *args_parser.out_stream << arg << ' ';
   }
-
-  auto stderr_redir_idx = std::find(args.begin(), args.end(), "2>");
-  if (stderr_redir_idx < args.end() - 1) {
-    std::ofstream file(*(stderr_redir_idx + 1), std::ios::app);
-  }
-
-  for (int i = 1; i < std::min(stdout_redir_idx, stderr_redir_idx) - args.begin(); i++) {
-    *output_ostream << args[i] << ' ';
-  }
-  *output_ostream << '\n';
+  *args_parser.out_stream << '\n';
+  // args_parser.out_stream->flush();
 }
 
-void handle_pwd() {
-  std::cout << fs::current_path().string() << '\n';
+void handle_pwd(const ArgsParser &args_parser) {
+  *args_parser.out_stream << fs::current_path().string() << '\n';
 }
 
-void handle_cd(const vector<string> &args) {
-  string path_str = args[1];
+void handle_cd(const ArgsParser &args_parser) {
+  string path_str = args_parser.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
     path_str = path_str.replace(tilde_pos, 1, home_path_str);
@@ -116,20 +158,20 @@ void handle_cd(const vector<string> &args) {
   if (const fs::path cd_path(path_str); fs::exists(cd_path))
     fs::current_path(cd_path);
   else
-    std::cout << "cd: " << path_str << ": No such file or directory\n";
+    *args_parser.out_stream << "cd: " << path_str << ": No such file or directory\n";
 }
 
-void handle_type(const vector<string> &args) {
-  const string &arg = args[1];
+void handle_type(const ArgsParser &args_parser) {
+  const string &arg = args_parser.args[1];
   if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
-    std::cout << arg << " is a shell builtin\n";
+    *args_parser.out_stream << arg << " is a shell builtin\n";
     return;
   }
 
   if (const auto exe_path = find_exe(arg); exe_path.empty())
-    std::cout << arg << ": not found\n";
+    *args_parser.out_stream << arg << ": not found\n";
   else
-    std::cout << arg << " is " << exe_path << '\n';
+    *args_parser.out_stream << arg << " is " << exe_path << '\n';
 }
 
 string escape_special_chars(const string &in) {
@@ -151,30 +193,30 @@ int main() {
     std::cout << "$ ";
     string args_str;
     std::getline(std::cin, args_str);
-    const vector<string> args = parse_args(args_str);
+    const auto argsParser = new ArgsParser(args_str);
 
-    if (args[0] == "exit") {
+    if (argsParser->args_trunc[0] == "exit") {
       int exit_status = 0;
-      if (args.size() > 1)
-        exit_status = std::stoi(args[1]);
+      if (argsParser->args_trunc.size() > 1)
+        exit_status = std::stoi(argsParser->args_trunc[1]);
       return exit_status;
     }
 
-    if (args[0] == "pwd")
-      handle_pwd();
-    else if (args[0] == "cd")
-      handle_cd(args);
-    else if (args[0] == "echo")
-      handle_echo(args);
-    else if (args[0] == "type")
-      handle_type(args);
-    else if (!find_exe(args[0]).empty()) {
-      string exe_args = escape_special_chars(args[0]);
-      for (int i = 1; i < args.size(); i++)
-        exe_args += " " + escape_special_chars(args[i]);
+    if (argsParser->args_trunc[0] == "pwd")
+      handle_pwd(*argsParser);
+    else if (argsParser->args_trunc[0] == "cd")
+      handle_cd(*argsParser);
+    else if (argsParser->args_trunc[0] == "echo")
+      handle_echo(*argsParser);
+    else if (argsParser->args_trunc[0] == "type")
+      handle_type(*argsParser);
+    else if (!find_exe(argsParser->args_trunc[0]).empty()) {
+      string exe_args = escape_special_chars(argsParser->args[0]);
+      for (int i = 1; i < argsParser->args.size(); i++)
+        exe_args += " " + escape_special_chars(argsParser->args[i]);
       std::system(exe_args.c_str());
     }
     else
-      std::cout << args[0] << ": command not found\n";
+      std::cout << argsParser->args[0] << ": command not found\n";
   }
 }
