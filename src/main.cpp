@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <cstring>
 #include <ranges>
 #include <vector>
 #include <filesystem>
@@ -202,7 +203,7 @@ static char* command_generator(const char* text, const int state) {
 
   const char* name;
   while ((name = commands[list_index++]) != nullptr) {
-    if (std::strncmp(name, text, len) == 0) {
+    if (strncmp(name, text, len) == 0) {
       return strdup(name);
     }
   }
