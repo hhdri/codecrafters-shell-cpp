@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include <readline/readline.h>
+
 using std::string, std::vector;
 
 #ifdef _WIN32
@@ -64,27 +66,27 @@ private:
   }
   void set_streams() {
     auto redir_out_idx = std::min(
-      std::find(args.begin(), args.end(), ">"),
-      std::find(args.begin(), args.end(), "1>")
+      std::ranges::find(args, ">"),
+      std::ranges::find(args, "1>")
     );
     if (redir_out_idx < args.end() - 1) {
       out_file.open(*(redir_out_idx + 1));
       out_stream = &out_file;
     }
-    auto redir_out_append_idx = std::min(
-      std::find(args.begin(), args.end(), ">>"),
-      std::find(args.begin(), args.end(), "1>>")
+    const auto redir_out_append_idx = std::min(
+      std::ranges::find(args, ">>"),
+      std::ranges::find(args, "1>>")
     );
     if (redir_out_append_idx < args.end() - 1) {
       out_file.open(*(redir_out_append_idx + 1), std::ios::app);
       out_stream = &out_file;
     }
-    auto redir_err_idx = std::find(args.begin(), args.end(), "2>");
+    const auto redir_err_idx = std::ranges::find(args, "2>");
     if (redir_err_idx < args.end() - 1) {
       err_file.open(*(redir_err_idx + 1));
       err_stream = &err_file;
     }
-    auto redir_err_append_idx = std::find(args.begin(), args.end(), "2>>");
+    const auto redir_err_append_idx = std::ranges::find(args, "2>>");
     if (redir_err_append_idx < args.end() - 1) {
       err_file.open(*(redir_err_append_idx + 1), std::ios::app);
       err_stream = &err_file;
@@ -175,7 +177,7 @@ void handle_type(const ArgsParser &args_parser) {
 
 string escape_special_chars(const string &in) {
   string result;
-  for (auto ch: in) {
+  for (const auto ch: in) {
     if (ch == ' ' || ch == '\'' || ch == '\"' || ch == '\\')
       result += '\\';
     result += ch;
@@ -183,39 +185,71 @@ string escape_special_chars(const string &in) {
   return result;
 }
 
+static const char* const commands[] = {
+  "echo",
+  "exit",
+  nullptr
+};
+
+static char* command_generator(const char* text, const int state) {
+  static size_t list_index;
+  static size_t len;
+
+  if (state == 0) {
+    list_index = 0;
+    len = std::strlen(text);
+  }
+
+  const char* name;
+  while ((name = commands[list_index++]) != nullptr) {
+    if (std::strncmp(name, text, len) == 0) {
+      return strdup(name);
+    }
+  }
+
+  return nullptr;
+}
+
+char** character_name_completion(const char* text, const int start, const int end) {
+  (void)start;
+  (void)end;
+
+  rl_attempted_completion_over = 1;
+  return rl_completion_matches(text, command_generator);
+}
+
 int main() {
+  rl_attempted_completion_function = character_name_completion;
+
   // Flush after every std::cout / std:cerr
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
   while (true) {
-    std::cout << "$ ";
-    string args_str;
-    std::getline(std::cin, args_str);
-    const auto argsParser = new ArgsParser(args_str);
+    const ArgsParser argsParser(readline("$ "));
 
-    if (argsParser->args_trunc[0] == "exit") {
+    if (argsParser.args_trunc[0] == "exit") {
       int exit_status = 0;
-      if (argsParser->args_trunc.size() > 1)
-        exit_status = std::stoi(argsParser->args_trunc[1]);
+      if (argsParser.args_trunc.size() > 1)
+        exit_status = std::stoi(argsParser.args_trunc[1]);
       return exit_status;
     }
 
-    if (argsParser->args_trunc[0] == "pwd")
-      handle_pwd(*argsParser);
-    else if (argsParser->args_trunc[0] == "cd")
-      handle_cd(*argsParser);
-    else if (argsParser->args_trunc[0] == "echo")
-      handle_echo(*argsParser);
-    else if (argsParser->args_trunc[0] == "type")
-      handle_type(*argsParser);
-    else if (!find_exe(argsParser->args_trunc[0]).empty()) {
-      string exe_args = escape_special_chars(argsParser->args[0]);
-      for (int i = 1; i < argsParser->args.size(); i++)
-        exe_args += " " + escape_special_chars(argsParser->args[i]);
+    if (argsParser.args_trunc[0] == "pwd")
+      handle_pwd(argsParser);
+    else if (argsParser.args_trunc[0] == "cd")
+      handle_cd(argsParser);
+    else if (argsParser.args_trunc[0] == "echo")
+      handle_echo(argsParser);
+    else if (argsParser.args_trunc[0] == "type")
+      handle_type(argsParser);
+    else if (!find_exe(argsParser.args_trunc[0]).empty()) {
+      string exe_args = escape_special_chars(argsParser.args[0]);
+      for (int i = 1; i < argsParser.args.size(); i++)
+        exe_args += " " + escape_special_chars(argsParser.args[i]);
       std::system(exe_args.c_str());
     }
     else
-      std::cout << argsParser->args[0] << ": command not found\n";
+      *argsParser.out_stream << argsParser.args[0] << ": command not found\n";
   }
 }
