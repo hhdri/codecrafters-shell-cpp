@@ -15,26 +15,45 @@ using std::string, std::vector;
 
 namespace fs = std::filesystem;
 
+constexpr auto pipe_in_filename = "/tmp/shell_pipe_in";
+constexpr auto pipe_out_filename = "/tmp/shell_pipe_out";
+
 class Command {
   std::ofstream out_file, err_file;
+  std::ifstream in_file;
 public:
   vector<string> args, args_trunc;
-  string out_filename, err_filename;
+  string out_filename, err_filename, in_filename;
   bool out_append = false, err_append = false;
-  std::ostream *out_stream, *err_stream;
+  // std::ostream *out_stream, *err_stream;
+  // std::istream *in_stream;
+  bool pipe_in, pipe_out;
 
-  explicit Command(vector<string> args) : args(std::move(args)) {
-    out_stream = &std::cout;
-    err_stream = &std::cerr;
+  std::ostream& get_out_stream() {
+    if (!out_filename.empty()) return out_file;
+    return std::cout;
+  }
+  std::ostream& get_err_stream() {
+    if (!err_filename.empty()) return err_file;
+    return std::cerr;
+  }
+  std::istream& get_in_stream() {
+    if (!in_filename.empty()) return in_file;
+    return std::cin;
+  }
 
+  explicit Command(vector<string> args, const bool pipe_in=false, const bool pipe_out=false)
+  : args(std::move(args)), pipe_in(pipe_in), pipe_out(pipe_out) {
     process();
-
-    *out_stream << std::unitbuf;
-    *err_stream << std::unitbuf;
   }
 
 private:
   void process() {
+    if (pipe_in) {
+      in_filename = pipe_in_filename;
+      in_file.open(in_filename, std::ios::in);
+    }
+
     const auto redir_out_idx = std::min(
       std::ranges::find(args, ">"),
       std::ranges::find(args, "1>")
@@ -49,6 +68,9 @@ private:
       out_filename = *(redir_out_append_idx + 1);
       out_append = true;
     }
+    if (pipe_out && out_filename.empty())
+      out_filename = pipe_out_filename;
+
     const auto redir_err_idx = std::ranges::find(args, "2>");
     if (redir_err_idx < args.end() - 1)
       err_filename = *(redir_err_idx + 1);
@@ -60,11 +82,11 @@ private:
 
     if (!out_filename.empty()) {
       out_file.open(out_filename, out_append ? std::ios::app : std::ios::out);
-      out_stream = &out_file;
+      out_file << std::unitbuf;
     }
     if (!err_filename.empty()) {
       err_file.open(err_filename, err_append ? std::ios::app : std::ios::out);
-      err_stream = &err_file;
+      err_file << std::unitbuf;
     }
 
     auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
@@ -127,8 +149,13 @@ private:
       else
         pipeline_args.back().emplace_back(arg_part);
     }
-    for (const auto& pipeline_arg: pipeline_args) {
-      pipeline.emplace_back(pipeline_arg);
+    pipeline.reserve(pipeline_args.size());
+    for (int i = 0; i < pipeline_args.size(); ++i) {
+      pipeline.emplace_back(
+        pipeline_args[i],
+        i>0,
+        i<pipeline_args.size()-1
+      );
     }
   }
 public:
@@ -138,10 +165,10 @@ public:
   }
 };
 
-int run_external(const Command& command) {
+int run_external(Command& command) {
   pid_t pid = fork();
   if (pid < 0) {
-    *command.err_stream << "fork failed\n";
+    command.get_err_stream() << "fork failed\n";
     return 1;
   }
   if (pid == 0) {
@@ -174,6 +201,19 @@ int run_external(const Command& command) {
       close(fd);
     }
 
+    if (!command.in_filename.empty()) {
+      const int fd = open(command.in_filename.c_str(), O_RDONLY);
+      if (fd < 0) {
+        std::perror("open stdin");
+        _exit(1);
+      }
+      if (dup2(fd, STDIN_FILENO) < 0) {
+        std::perror("dup2 stdin");
+        _exit(1);
+      }
+      close(fd);
+    }
+
     std::vector<char*> argv;
     argv.reserve(command.args_trunc.size() + 1);
     for (auto& s : command.args_trunc) {
@@ -191,7 +231,7 @@ int run_external(const Command& command) {
   // --- parent process ---
   int status = 0;
   if (waitpid(pid, &status, 0) < 0) {
-    *command.err_stream << "waitpid failed\n";
+    command.get_err_stream() << "waitpid failed\n";
     return 1;
   }
 
@@ -238,18 +278,25 @@ string find_exe(const string &stem) {
   return "";
 }
 
-void handle_echo(const Command& command) {
-  for (const auto &arg: command.args_trunc | std::ranges::views::drop(1)) {
-    *command.out_stream << arg << ' ';
+void handle_echo(Command& command) {
+  if (command.pipe_in) {
+    string output;
+    std::getline(command.get_in_stream(), output);
+    command.get_out_stream() << output;
   }
-  *command.out_stream << '\n';
+  else {
+    for (const auto &arg: command.args_trunc | std::ranges::views::drop(1)) {
+      command.get_out_stream() << arg << ' ';
+    }
+  }
+  command.get_out_stream() << '\n';
 }
 
-void handle_pwd(const Command& command) {
-  *command.out_stream << fs::current_path().string() << '\n';
+void handle_pwd(Command& command) {
+  command.get_out_stream() << fs::current_path().string() << '\n';
 }
 
-void handle_cd(const Command& args_parser) {
+void handle_cd(Command& args_parser) {
   string path_str = args_parser.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
@@ -258,20 +305,20 @@ void handle_cd(const Command& args_parser) {
   if (const fs::path cd_path(path_str); fs::exists(cd_path))
     fs::current_path(cd_path);
   else
-    *args_parser.out_stream << "cd: " << path_str << ": No such file or directory\n";
+    args_parser.get_out_stream() << "cd: " << path_str << ": No such file or directory\n";
 }
 
-void handle_type(const Command& args_parser) {
+void handle_type(Command& args_parser) {
   const string &arg = args_parser.args[1];
   if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
-    *args_parser.out_stream << arg << " is a shell builtin\n";
+    args_parser.get_out_stream() << arg << " is a shell builtin\n";
     return;
   }
 
   if (const auto exe_path = find_exe(arg); exe_path.empty())
-    *args_parser.out_stream << arg << ": not found\n";
+    args_parser.get_out_stream() << arg << ": not found\n";
   else
-    *args_parser.out_stream << arg << " is " << exe_path << '\n';
+    args_parser.get_out_stream() << arg << " is " << exe_path << '\n';
 }
 
 static char* command_generator(const char* text, const int state) {
@@ -313,7 +360,7 @@ int main() {
   std::cerr << std::unitbuf;
 
   while (true) {
-    for (const ArgsParser args_parser(readline("$ ")); const auto& command: args_parser.pipeline) {
+    for (ArgsParser args_parser(readline("$ ")); auto& command: args_parser.pipeline) {
       if (command.args_trunc[0] == "exit") {
         int exit_status = 0;
         if (command.args_trunc.size() > 1)
@@ -333,7 +380,10 @@ int main() {
         run_external(command);
       }
       else
-        *command.out_stream << command.args[0] << ": command not found\n";
+        command.get_out_stream() << command.args[0] << ": command not found\n";
+
+      if (fs::exists(pipe_out_filename))
+        fs::rename(pipe_out_filename, pipe_in_filename);
     }
   }
 }
