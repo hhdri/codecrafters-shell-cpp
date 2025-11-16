@@ -5,6 +5,10 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>      // fork, execvp
+// #include <sys/types.h>   // pid_t
+// #include <sys/wait.h>    // waitpid, WIFEXITED, etc.
+#include <fcntl.h>
 
 #include <readline/readline.h>
 
@@ -20,6 +24,9 @@ public:
   std::ostream *err_stream;
   std::ofstream out_file;
   std::ofstream err_file;
+  string out_filename;
+  string err_filename;
+  bool out_append = false, err_append = false;
   vector<string> args_trunc;
 
 private:
@@ -67,6 +74,7 @@ private:
     if (redir_out_idx < args.end() - 1) {
       out_file.open(*(redir_out_idx + 1));
       out_stream = &out_file;
+      out_filename = *(redir_out_idx + 1);
     }
     const auto redir_out_append_idx = std::min(
       std::ranges::find(args, ">>"),
@@ -75,16 +83,21 @@ private:
     if (redir_out_append_idx < args.end() - 1) {
       out_file.open(*(redir_out_append_idx + 1), std::ios::app);
       out_stream = &out_file;
+      out_filename = *(redir_out_idx + 1);
+      out_append = true;
     }
     const auto redir_err_idx = std::ranges::find(args, "2>");
     if (redir_err_idx < args.end() - 1) {
       err_file.open(*(redir_err_idx + 1));
       err_stream = &err_file;
+      err_filename = *(redir_err_idx + 1);
     }
     const auto redir_err_append_idx = std::ranges::find(args, "2>>");
     if (redir_err_append_idx < args.end() - 1) {
       err_file.open(*(redir_err_append_idx + 1), std::ios::app);
       err_stream = &err_file;
+      err_filename = *(redir_err_idx + 1);
+      err_append = true;
     }
 
     auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
@@ -104,6 +117,71 @@ public:
     *err_stream << std::unitbuf;
   }
 };
+
+int run_external(const ArgsParser& args_parser) {
+  pid_t pid = fork();
+  if (pid < 0) {
+    *args_parser.err_stream << "fork failed\n";
+    return 1;
+  }
+  if (pid == 0) {
+    // 1) handle redirections
+    if (!args_parser.out_filename.empty()) {
+      int flags = O_WRONLY | O_CREAT | (args_parser.out_append ? O_APPEND : O_TRUNC);
+      int fd = ::open(args_parser.out_filename.c_str(), flags, 0666);
+      if (fd < 0) {
+        std::perror("open stdout");
+        _exit(1);
+      }
+      if (dup2(fd, STDOUT_FILENO) < 0) {
+        std::perror("dup2 stdout");
+        _exit(1);
+      }
+      close(fd);
+    }
+
+    if (!args_parser.err_filename.empty()) {
+      const int flags = O_WRONLY | O_CREAT | (args_parser.err_append ? O_APPEND : O_TRUNC);
+      const int fd = ::open(args_parser.err_filename.c_str(), flags, 0666);
+      if (fd < 0) {
+        std::perror("open stderr");
+        _exit(1);
+      }
+      if (dup2(fd, STDERR_FILENO) < 0) {
+        std::perror("dup2 stderr");
+        _exit(1);
+      }
+      close(fd);
+    }
+
+    std::vector<char*> argv;
+    argv.reserve(args_parser.args_trunc.size() + 1);
+    for (auto& s : args_parser.args_trunc) {
+      argv.push_back(const_cast<char*>(s.c_str()));
+    }
+    argv.push_back(nullptr);
+
+    // use execvp so PATH is searched automatically
+    execvp(argv[0], argv.data());
+
+    // if we get here, exec failed
+    std::perror("execvp");
+    _exit(127); // POSIX convention for "command not found" / exec failed
+  }
+  // --- parent process ---
+  int status = 0;
+  if (waitpid(pid, &status, 0) < 0) {
+    *args_parser.err_stream << "waitpid failed\n";
+    return 1;
+  }
+
+  if (WIFEXITED(status))
+    return WEXITSTATUS(status);
+  if (WIFSIGNALED(status))
+    return 128 + WTERMSIG(status);
+
+  return 1;
+}
 
 
 vector<fs::directory_entry> find_all_exes() {
@@ -244,10 +322,7 @@ int main() {
     else if (argsParser.args_trunc[0] == "type")
       handle_type(argsParser);
     else if (!find_exe(argsParser.args_trunc[0]).empty()) {
-      string exe_args = escape_special_chars(argsParser.args[0]);
-      for (int i = 1; i < argsParser.args.size(); i++)
-        exe_args += " " + escape_special_chars(argsParser.args[i]);
-      std::system(exe_args.c_str());
+      run_external(argsParser);
     }
     else
       *argsParser.out_stream << argsParser.args[0] << ": command not found\n";
