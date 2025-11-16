@@ -286,18 +286,17 @@ void handle_echo(Command& command) {
     os << output;
   }
   else {
-    for (const auto &arg: command.args_trunc | std::ranges::views::drop(1)) {
-      os << arg << ' ';
+    auto it = command.args_trunc.begin() + 1;
+    while (it != command.args_trunc.end()) {
+      os << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
+      ++it;
     }
   }
-  if (!command.pipe_out) os << '\n';
+  os << '\n';
 }
 
 void handle_pwd(Command& command) {
-  auto &os = command.get_out_stream();
-  os << fs::current_path().string();
-  if (!command.pipe_out)
-    os << '\n';
+  command.get_out_stream() << fs::current_path().string() << '\n';
 }
 
 void handle_cd(Command& args_parser) {
