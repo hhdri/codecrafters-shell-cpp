@@ -279,21 +279,25 @@ string find_exe(const string &stem) {
 }
 
 void handle_echo(Command& command) {
+  auto &os = command.get_out_stream();
   if (command.pipe_in) {
     string output;
     std::getline(command.get_in_stream(), output);
-    command.get_out_stream() << output;
+    os << output;
   }
   else {
     for (const auto &arg: command.args_trunc | std::ranges::views::drop(1)) {
-      command.get_out_stream() << arg << ' ';
+      os << arg << ' ';
     }
   }
-  command.get_out_stream() << '\n';
+  if (!command.pipe_out) os << '\n';
 }
 
 void handle_pwd(Command& command) {
-  command.get_out_stream() << fs::current_path().string() << '\n';
+  auto &os = command.get_out_stream();
+  os << fs::current_path().string();
+  if (!command.pipe_out)
+    os << '\n';
 }
 
 void handle_cd(Command& args_parser) {
@@ -305,7 +309,7 @@ void handle_cd(Command& args_parser) {
   if (const fs::path cd_path(path_str); fs::exists(cd_path))
     fs::current_path(cd_path);
   else
-    args_parser.get_out_stream() << "cd: " << path_str << ": No such file or directory\n";
+    args_parser.get_err_stream() << "cd: " << path_str << ": No such file or directory\n";
 }
 
 void handle_type(Command& args_parser) {
