@@ -7,7 +7,7 @@
 #include <fstream>
 #include <unistd.h>      // fork, execvp
 // #include <sys/types.h>   // pid_t
-// #include <sys/wait.h>    // waitpid, WIFEXITED, etc.
+#include <sys/wait.h>    // waitpid, WIFEXITED, etc.
 #include <fcntl.h>
 
 #include <readline/readline.h>
