@@ -28,6 +28,9 @@ public:
     err_stream = &std::cerr;
 
     process();
+
+    *out_stream << std::unitbuf;
+    *err_stream << std::unitbuf;
   }
 
 private:
@@ -132,9 +135,6 @@ public:
   explicit ArgsParser(string args_str) : args_str(std::move(args_str)) {
     parse_args();
     build_pipeline();
-
-    // *out_stream << std::unitbuf;
-    // *err_stream << std::unitbuf;  // TODO: make sure this happens for builtin commands
   }
 };
 
