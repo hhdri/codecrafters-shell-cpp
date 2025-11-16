@@ -6,7 +6,6 @@
 #include <filesystem>
 #include <fstream>
 #include <unistd.h>      // fork, execvp
-// #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid, WIFEXITED, etc.
 #include <fcntl.h>
 
@@ -16,18 +15,68 @@ using std::string, std::vector;
 
 namespace fs = std::filesystem;
 
+class Command {
+  std::ofstream out_file, err_file;
+public:
+  vector<string> args, args_trunc;
+  string out_filename, err_filename;
+  bool out_append = false, err_append = false;
+  std::ostream *out_stream, *err_stream;
+
+  explicit Command(vector<string> args) : args(std::move(args)) {
+    out_stream = &std::cout;
+    err_stream = &std::cerr;
+
+    process();
+  }
+
+private:
+  void process() {
+    const auto redir_out_idx = std::min(
+      std::ranges::find(args, ">"),
+      std::ranges::find(args, "1>")
+    );
+    if (redir_out_idx < args.end() - 1)
+      out_filename = *(redir_out_idx + 1);
+    const auto redir_out_append_idx = std::min(
+      std::ranges::find(args, ">>"),
+      std::ranges::find(args, "1>>")
+    );
+    if (redir_out_append_idx < args.end() - 1) {
+      out_filename = *(redir_out_append_idx + 1);
+      out_append = true;
+    }
+    const auto redir_err_idx = std::ranges::find(args, "2>");
+    if (redir_err_idx < args.end() - 1)
+      err_filename = *(redir_err_idx + 1);
+    const auto redir_err_append_idx = std::ranges::find(args, "2>>");
+    if (redir_err_append_idx < args.end() - 1) {
+      err_filename = *(redir_err_append_idx + 1);
+      err_append = true;
+    }
+
+    if (!out_filename.empty()) {
+      out_file.open(out_filename, out_append ? std::ios::app : std::ios::out);
+      out_stream = &out_file;
+    }
+    if (!err_filename.empty()) {
+      err_file.open(err_filename, err_append ? std::ios::app : std::ios::out);
+      err_stream = &err_file;
+    }
+
+    auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
+    end_idx = std::min(end_idx, redir_err_idx);
+    end_idx = std::min(end_idx, redir_err_append_idx);
+    for (auto i = args.begin(); i < end_idx; ++i)
+      args_trunc.emplace_back(*i);
+  }
+};
+
 class ArgsParser {
   string args_str;
 public:
   vector<string> args;
-  std::ostream *out_stream;
-  std::ostream *err_stream;
-  std::ofstream out_file;
-  std::ofstream err_file;
-  string out_filename;
-  string err_filename;
-  bool out_append = false, err_append = false;
-  vector<string> args_trunc;
+  vector<Command> pipeline;
 
 private:
   void parse_args() {
@@ -66,69 +115,40 @@ private:
       }
     } while (it != args_str.end());
   }
-  void set_streams() {
-    auto redir_out_idx = std::min(
-      std::ranges::find(args, ">"),
-      std::ranges::find(args, "1>")
-    );
-    if (redir_out_idx < args.end() - 1) {
-      out_file.open(*(redir_out_idx + 1));
-      out_stream = &out_file;
-      out_filename = *(redir_out_idx + 1);
+  void build_pipeline() {
+    vector<vector<string>> pipeline_args;
+    pipeline_args.emplace_back();
+    for (const auto& arg_part: args) {
+      if (arg_part == "|")
+        pipeline_args.emplace_back();
+      else
+        pipeline_args.back().emplace_back(arg_part);
     }
-    const auto redir_out_append_idx = std::min(
-      std::ranges::find(args, ">>"),
-      std::ranges::find(args, "1>>")
-    );
-    if (redir_out_append_idx < args.end() - 1) {
-      out_file.open(*(redir_out_append_idx + 1), std::ios::app);
-      out_stream = &out_file;
-      out_filename = *(redir_out_idx + 1);
-      out_append = true;
+    for (const auto& pipeline_arg: pipeline_args) {
+      pipeline.emplace_back(pipeline_arg);
     }
-    const auto redir_err_idx = std::ranges::find(args, "2>");
-    if (redir_err_idx < args.end() - 1) {
-      err_file.open(*(redir_err_idx + 1));
-      err_stream = &err_file;
-      err_filename = *(redir_err_idx + 1);
-    }
-    const auto redir_err_append_idx = std::ranges::find(args, "2>>");
-    if (redir_err_append_idx < args.end() - 1) {
-      err_file.open(*(redir_err_append_idx + 1), std::ios::app);
-      err_stream = &err_file;
-      err_filename = *(redir_err_idx + 1);
-      err_append = true;
-    }
-
-    auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
-    end_idx = std::min(end_idx, redir_err_idx);
-    end_idx = std::min(end_idx, redir_err_append_idx);
-    for (auto i = args.begin(); i < end_idx; ++i)
-      args_trunc.emplace_back(*i);
   }
 public:
   explicit ArgsParser(string args_str) : args_str(std::move(args_str)) {
     parse_args();
-    out_stream = &(std::cout);
-    err_stream = &(std::cerr);
-    set_streams();
+    build_pipeline();
 
-    *out_stream << std::unitbuf;
-    *err_stream << std::unitbuf;
+    // *out_stream << std::unitbuf;
+    // *err_stream << std::unitbuf;  // TODO: make sure this happens for builtin commands
   }
 };
 
-int run_external(const ArgsParser& args_parser) {
+int run_external(const Command& command) {
   pid_t pid = fork();
   if (pid < 0) {
-    *args_parser.err_stream << "fork failed\n";
+    *command.err_stream << "fork failed\n";
     return 1;
   }
   if (pid == 0) {
     // 1) handle redirections
-    if (!args_parser.out_filename.empty()) {
-      int flags = O_WRONLY | O_CREAT | (args_parser.out_append ? O_APPEND : O_TRUNC);
-      int fd = ::open(args_parser.out_filename.c_str(), flags, 0666);
+    if (!command.out_filename.empty()) {
+      const int flags = O_WRONLY | O_CREAT | (command.out_append ? O_APPEND : O_TRUNC);
+      const int fd = open(command.out_filename.c_str(), flags, 0666);
       if (fd < 0) {
         std::perror("open stdout");
         _exit(1);
@@ -140,9 +160,9 @@ int run_external(const ArgsParser& args_parser) {
       close(fd);
     }
 
-    if (!args_parser.err_filename.empty()) {
-      const int flags = O_WRONLY | O_CREAT | (args_parser.err_append ? O_APPEND : O_TRUNC);
-      const int fd = ::open(args_parser.err_filename.c_str(), flags, 0666);
+    if (!command.err_filename.empty()) {
+      const int flags = O_WRONLY | O_CREAT | (command.err_append ? O_APPEND : O_TRUNC);
+      const int fd = open(command.err_filename.c_str(), flags, 0666);
       if (fd < 0) {
         std::perror("open stderr");
         _exit(1);
@@ -155,8 +175,8 @@ int run_external(const ArgsParser& args_parser) {
     }
 
     std::vector<char*> argv;
-    argv.reserve(args_parser.args_trunc.size() + 1);
-    for (auto& s : args_parser.args_trunc) {
+    argv.reserve(command.args_trunc.size() + 1);
+    for (auto& s : command.args_trunc) {
       argv.push_back(const_cast<char*>(s.c_str()));
     }
     argv.push_back(nullptr);
@@ -171,7 +191,7 @@ int run_external(const ArgsParser& args_parser) {
   // --- parent process ---
   int status = 0;
   if (waitpid(pid, &status, 0) < 0) {
-    *args_parser.err_stream << "waitpid failed\n";
+    *command.err_stream << "waitpid failed\n";
     return 1;
   }
 
@@ -218,19 +238,18 @@ string find_exe(const string &stem) {
   return "";
 }
 
-void handle_echo(const ArgsParser &args_parser) {
-  for (const auto &arg: args_parser.args_trunc | std::ranges::views::drop(1)) {
-    *args_parser.out_stream << arg << ' ';
+void handle_echo(const Command& command) {
+  for (const auto &arg: command.args_trunc | std::ranges::views::drop(1)) {
+    *command.out_stream << arg << ' ';
   }
-  *args_parser.out_stream << '\n';
-  // args_parser.out_stream->flush();
+  *command.out_stream << '\n';
 }
 
-void handle_pwd(const ArgsParser &args_parser) {
-  *args_parser.out_stream << fs::current_path().string() << '\n';
+void handle_pwd(const Command& command) {
+  *command.out_stream << fs::current_path().string() << '\n';
 }
 
-void handle_cd(const ArgsParser &args_parser) {
+void handle_cd(const Command& args_parser) {
   string path_str = args_parser.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
@@ -242,7 +261,7 @@ void handle_cd(const ArgsParser &args_parser) {
     *args_parser.out_stream << "cd: " << path_str << ": No such file or directory\n";
 }
 
-void handle_type(const ArgsParser &args_parser) {
+void handle_type(const Command& args_parser) {
   const string &arg = args_parser.args[1];
   if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
     *args_parser.out_stream << arg << " is a shell builtin\n";
@@ -253,16 +272,6 @@ void handle_type(const ArgsParser &args_parser) {
     *args_parser.out_stream << arg << ": not found\n";
   else
     *args_parser.out_stream << arg << " is " << exe_path << '\n';
-}
-
-string escape_special_chars(const string &in) {
-  string result;
-  for (const auto ch: in) {
-    if (ch == ' ' || ch == '\'' || ch == '\"' || ch == '\\')
-      result += '\\';
-    result += ch;
-  }
-  return result;
 }
 
 static char* command_generator(const char* text, const int state) {
@@ -304,27 +313,27 @@ int main() {
   std::cerr << std::unitbuf;
 
   while (true) {
-    const ArgsParser argsParser(readline("$ "));
+    for (const ArgsParser args_parser(readline("$ ")); const auto& command: args_parser.pipeline) {
+      if (command.args_trunc[0] == "exit") {
+        int exit_status = 0;
+        if (command.args_trunc.size() > 1)
+          exit_status = std::stoi(command.args_trunc[1]);
+        return exit_status;
+      }
 
-    if (argsParser.args_trunc[0] == "exit") {
-      int exit_status = 0;
-      if (argsParser.args_trunc.size() > 1)
-        exit_status = std::stoi(argsParser.args_trunc[1]);
-      return exit_status;
+      if (command.args_trunc[0] == "pwd")
+        handle_pwd(command);
+      else if (command.args_trunc[0] == "cd")
+        handle_cd(command);
+      else if (command.args_trunc[0] == "echo")
+        handle_echo(command);
+      else if (command.args_trunc[0] == "type")
+        handle_type(command);
+      else if (!find_exe(command.args_trunc[0]).empty()) {
+        run_external(command);
+      }
+      else
+        *command.out_stream << command.args[0] << ": command not found\n";
     }
-
-    if (argsParser.args_trunc[0] == "pwd")
-      handle_pwd(argsParser);
-    else if (argsParser.args_trunc[0] == "cd")
-      handle_cd(argsParser);
-    else if (argsParser.args_trunc[0] == "echo")
-      handle_echo(argsParser);
-    else if (argsParser.args_trunc[0] == "type")
-      handle_type(argsParser);
-    else if (!find_exe(argsParser.args_trunc[0]).empty()) {
-      run_external(argsParser);
-    }
-    else
-      *argsParser.out_stream << argsParser.args[0] << ": command not found\n";
   }
 }
