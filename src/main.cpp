@@ -290,12 +290,12 @@ void handle_pwd(Command& command) {
   std::cout << fs::current_path().string() << '\n';
 }
 
-void handle_cd(Command& command) {
-  if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
-    std::perror("dup2 stderr");
-    _exit(1);
-  }
-  command.close_all_fds();
+void handle_cd(const Command& command) {
+  // if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
+  //   std::perror("dup2 stderr");
+  //   _exit(1);
+  // }
+  // command.close_all_fds();
 
   string path_str = command.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
@@ -374,6 +374,10 @@ int main() {
           exit_status = std::stoi(command.args_trunc[1]);
         return exit_status;
       }
+      if (command.args_trunc[0] == "cd") {
+        handle_cd(command);
+        continue;
+      }
 
       pid_t pid = fork();
       if (pid < 0) std::cerr << "failed to fork\n";
@@ -385,8 +389,6 @@ int main() {
 
       if (command.args_trunc[0] == "pwd")
         handle_pwd(command);
-      else if (command.args_trunc[0] == "cd")
-        handle_cd(command);
       else if (command.args_trunc[0] == "echo")
         handle_echo(command);
       else if (command.args_trunc[0] == "type")
