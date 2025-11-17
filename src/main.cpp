@@ -171,19 +171,24 @@ public:
   }
 };
 
-int run_external(Command& command) {
+int setup_stdio(const Command &command) {
   if (command.in_fd != STDIN_FILENO && dup2(command.in_fd, STDIN_FILENO) < 0) {
     std::perror("dup2 stdin");
-    _exit(1);
+    return -1;
   }
-  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
+  if (command.out_fd != STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
     std::perror("dup2 stdout");
-    _exit(1);
+    return -1;
   }
   if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
     std::perror("dup2 stderr");
-    _exit(1);
+    return -1;
   }
+  return 0;
+}
+
+int run_external(Command& command) {
+  setup_stdio(command);
   command.close_all_fds();
 
   std::vector<char*> argv;
@@ -199,20 +204,6 @@ int run_external(Command& command) {
   // if we get here, exec failed
   std::perror("execvp");
   _exit(127); // POSIX convention for "command not found" / exec failed
-
-  // // --- parent process ---
-  // int status = 0;
-  // if (waitpid(pid, &status, 0) < 0) {
-  //   command.get_err_stream() << "waitpid failed\n";
-  //   return 1;
-  // }
-  //
-  // if (WIFEXITED(status))
-  //   return WEXITSTATUS(status);
-  // if (WIFSIGNALED(status))
-  //   return 128 + WTERMSIG(status);
-  //
-  // return 1;
 }
 
 
@@ -251,18 +242,7 @@ string find_exe(const string &stem) {
 }
 
 void handle_echo(Command& command) {
-  if (command.in_fd != STDIN_FILENO && dup2(command.in_fd, STDIN_FILENO) < 0) {
-    std::perror("dup2 stdin");
-    _exit(1);
-  }
-  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
-    std::perror("dup2 stdout");
-    _exit(1);
-  }
-  if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
-    std::perror("dup2 stderr");
-    _exit(1);
-  }
+  setup_stdio(command);
 
   if (command.in_fd != STDIN_FILENO) {
     command.close_all_fds();
@@ -282,21 +262,12 @@ void handle_echo(Command& command) {
 }
 
 void handle_pwd(Command& command) {
-  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
-    std::perror("dup2 stdout");
-    _exit(1);
-  }
+  setup_stdio(command);
   command.close_all_fds();
   std::cout << fs::current_path().string() << '\n';
 }
 
 void handle_cd(const Command& command) {
-  // if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
-  //   std::perror("dup2 stderr");
-  //   _exit(1);
-  // }
-  // command.close_all_fds();
-
   string path_str = command.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
@@ -309,10 +280,7 @@ void handle_cd(const Command& command) {
 }
 
 void handle_type(Command& command) {
-  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
-    std::perror("dup2 stdout");
-    _exit(1);
-  }
+  setup_stdio(command);
   command.close_all_fds();
 
   const string &arg = command.args[1];
