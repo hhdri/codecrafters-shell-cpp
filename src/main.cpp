@@ -9,6 +9,8 @@
 #include <unistd.h>      // fork, execvp
 #include <sys/wait.h>    // waitpid, WIFEXITED, etc.
 #include <fcntl.h>
+#include <tuple>
+#include <algorithm>
 
 #include <readline/readline.h>
 
@@ -17,78 +19,76 @@ using std::string, std::vector;
 namespace fs = std::filesystem;
 
 class Command {
-  std::ofstream out_file, err_file;
-  std::ifstream in_file;
 public:
   vector<string> args, args_trunc;
-  string out_filename, err_filename, in_filename;
-  bool out_append = false, err_append = false;
-  string pipe_in_path, pipe_out_path;
+  int in_fd = STDIN_FILENO, out_fd = STDOUT_FILENO, err_fd = STDERR_FILENO;
+  int pipe_in_fd = -1, pipe_out_fd = -1;
 
-  std::ostream& get_out_stream() {
-    if (!out_filename.empty()) return out_file;
-    return std::cout;
-  }
-  std::ostream& get_err_stream() {
-    if (!err_filename.empty()) return err_file;
-    return std::cerr;
-  }
-  std::istream& get_in_stream() {
-    if (!in_filename.empty()) return in_file;
-    return std::cin;
-  }
-
-  explicit Command(vector<string> args, string pipe_in_path="", string pipe_out_path="")
-  : args(std::move(args)), pipe_in_path(std::move(pipe_in_path)), pipe_out_path(std::move(pipe_out_path)) {
+  explicit Command(vector<string> args, const int pipe_in_fd=-1, const int pipe_out_fd=-1)
+  : args(std::move(args)), pipe_in_fd(pipe_in_fd), pipe_out_fd(pipe_out_fd) {
     process();
+  }
+
+  void close_all_fds() noexcept {
+    // Collect them in a temporary array.
+    int fds[] = { in_fd, out_fd, err_fd, pipe_in_fd, pipe_out_fd };
+
+    std::ranges::sort(fds);
+
+    int last = -1;
+    for (const int fd : fds) {
+      if (fd < 0)          continue;        // invalid
+      if (fd <= STDERR_FILENO) continue;    // 0,1,2 → leave them alone
+      if (fd == last)      continue;        // avoid double close
+      if (close(fd) == -1)
+        std::perror("File close error");
+      last = fd;
+    }
+
+    in_fd = out_fd = err_fd = pipe_in_fd = pipe_out_fd = -1;
   }
 
 private:
   void process() {
-    if (!pipe_in_path.empty()) {
-      in_filename = pipe_in_path;
-      in_file.open(in_filename, std::ios::in);
+    if (pipe_in_fd != -1) {
+      in_fd = pipe_in_fd;
     }
 
-    const auto redir_out_idx = std::min(
+    auto redir_idx = std::min(
       std::ranges::find(args, ">"),
       std::ranges::find(args, "1>")
     );
-    if (redir_out_idx < args.end() - 1)
-      out_filename = *(redir_out_idx + 1);
-    const auto redir_out_append_idx = std::min(
+    auto min_redir_idx = redir_idx;
+    if (redir_idx < args.end() - 1) {
+      constexpr int flags = O_WRONLY | O_CREAT | O_TRUNC;
+      out_fd = open((redir_idx + 1)->c_str(), flags, 0666);
+    }
+    redir_idx = std::min(
       std::ranges::find(args, ">>"),
       std::ranges::find(args, "1>>")
     );
-    if (redir_out_append_idx < args.end() - 1) {
-      out_filename = *(redir_out_append_idx + 1);
-      out_append = true;
+    min_redir_idx = std::min(min_redir_idx, redir_idx);
+    if (redir_idx < args.end() - 1) {
+      constexpr int flags = O_WRONLY | O_CREAT | O_APPEND;
+      out_fd = open((redir_idx + 1)->c_str(), flags, 0666);
     }
-    if (!pipe_out_path.empty() && out_filename.empty())
-      out_filename = pipe_out_path;
+    if (pipe_out_fd != -1 && out_fd == 1)
+      out_fd = pipe_out_fd;
 
-    const auto redir_err_idx = std::ranges::find(args, "2>");
-    if (redir_err_idx < args.end() - 1)
-      err_filename = *(redir_err_idx + 1);
-    const auto redir_err_append_idx = std::ranges::find(args, "2>>");
-    if (redir_err_append_idx < args.end() - 1) {
-      err_filename = *(redir_err_append_idx + 1);
-      err_append = true;
+    redir_idx = std::ranges::find(args, "2>");
+    min_redir_idx = std::min(min_redir_idx, redir_idx);
+    if (redir_idx < args.end() - 1) {
+      constexpr int flags = O_WRONLY | O_CREAT | O_TRUNC;
+      err_fd = open((redir_idx + 1)->c_str(), flags, 0666);
     }
-
-    if (!out_filename.empty()) {
-      out_file.open(out_filename, out_append ? std::ios::app : std::ios::out);
-      out_file << std::unitbuf;
-    }
-    if (!err_filename.empty()) {
-      err_file.open(err_filename, err_append ? std::ios::app : std::ios::out);
-      err_file << std::unitbuf;
+    redir_idx = std::ranges::find(args, "2>>");
+    min_redir_idx = std::min(min_redir_idx, redir_idx);
+    if (redir_idx < args.end() - 1) {
+      constexpr int flags = O_WRONLY | O_CREAT | O_APPEND;
+      err_fd = open((redir_idx + 1)->c_str(), flags, 0666);
     }
 
-    auto end_idx = std::min(redir_out_idx, redir_out_append_idx);
-    end_idx = std::min(end_idx, redir_err_idx);
-    end_idx = std::min(end_idx, redir_err_append_idx);
-    for (auto i = args.begin(); i < end_idx; ++i)
+    for (auto i = args.begin(); i < min_redir_idx; ++i)
       args_trunc.emplace_back(*i);
   }
 };
@@ -105,7 +105,7 @@ private:
     auto it = args_str.begin();
     bool ongoing_single_quote = false;
     bool ongoing_double_quote = false;
-    do {
+    do {  // TODO: if args are empty this results to segfault
       if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
         args[args.size() - 1] += *(++it);
         ++it;
@@ -145,12 +145,22 @@ private:
       else
         pipeline_args.back().emplace_back(arg_part);
     }
+
+    vector<std::tuple<int, int>> fds_pipes;
+    for (int i = 0; i < pipeline_args.size() - 1; i++) {
+      int fds[2];
+      pipe(fds);
+      fds_pipes.emplace_back(fds[0], fds[1]);
+    }
+    // close(std::get<0>(fds_pipes.front()));
+    // close(std::get<1>(fds_pipes.back()));
+
     pipeline.reserve(pipeline_args.size());
     for (int i = 0; i < pipeline_args.size(); ++i) {
       pipeline.emplace_back(
         pipeline_args[i],
-        i > 0 ? "/tmp/shell_" + std::to_string(i-1) : "",  // TODO: cleanup pipe files after command destruction
-        i < pipeline_args.size() - 1 ? "/tmp/shell_" + std::to_string(i) : ""
+        i > 0 ? std::get<0>(fds_pipes[i-1]) : -1,
+        i < pipeline_args.size() - 1 ? std::get<1>(fds_pipes[i]) : -1
       );
     }
   }
@@ -162,81 +172,47 @@ public:
 };
 
 int run_external(Command& command) {
-  pid_t pid = fork();
-  if (pid < 0) {
-    command.get_err_stream() << "fork failed\n";
-    return 1;
+  if (command.in_fd != STDIN_FILENO && dup2(command.in_fd, STDIN_FILENO) < 0) {
+    std::perror("dup2 stdin");
+    _exit(1);
   }
-  if (pid == 0) {
-    // 1) handle redirections
-    if (!command.out_filename.empty()) {
-      const int flags = O_WRONLY | O_CREAT | (command.out_append ? O_APPEND : O_TRUNC);
-      const int fd = open(command.out_filename.c_str(), flags, 0666);
-      if (fd < 0) {
-        std::perror("open stdout");
-        _exit(1);
-      }
-      if (dup2(fd, STDOUT_FILENO) < 0) {
-        std::perror("dup2 stdout");
-        _exit(1);
-      }
-      close(fd);
-    }
-
-    if (!command.err_filename.empty()) {
-      const int flags = O_WRONLY | O_CREAT | (command.err_append ? O_APPEND : O_TRUNC);
-      const int fd = open(command.err_filename.c_str(), flags, 0666);
-      if (fd < 0) {
-        std::perror("open stderr");
-        _exit(1);
-      }
-      if (dup2(fd, STDERR_FILENO) < 0) {
-        std::perror("dup2 stderr");
-        _exit(1);
-      }
-      close(fd);
-    }
-
-    if (!command.in_filename.empty()) {
-      const int fd = open(command.in_filename.c_str(), O_RDONLY);
-      if (fd < 0) {
-        std::perror("open stdin");
-        _exit(1);
-      }
-      if (dup2(fd, STDIN_FILENO) < 0) {
-        std::perror("dup2 stdin");
-        _exit(1);
-      }
-      close(fd);
-    }
-
-    std::vector<char*> argv;
-    argv.reserve(command.args_trunc.size() + 1);
-    for (auto& s : command.args_trunc) {
-      argv.push_back(const_cast<char*>(s.c_str()));
-    }
-    argv.push_back(nullptr);
-
-    // use execvp so PATH is searched automatically
-    execvp(argv[0], argv.data());
-
-    // if we get here, exec failed
-    std::perror("execvp");
-    _exit(127); // POSIX convention for "command not found" / exec failed
+  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
+    std::perror("dup2 stdout");
+    _exit(1);
   }
-  // --- parent process ---
-  int status = 0;
-  if (waitpid(pid, &status, 0) < 0) {
-    command.get_err_stream() << "waitpid failed\n";
-    return 1;
+  if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
+    std::perror("dup2 stderr");
+    _exit(1);
   }
+  command.close_all_fds();
 
-  if (WIFEXITED(status))
-    return WEXITSTATUS(status);
-  if (WIFSIGNALED(status))
-    return 128 + WTERMSIG(status);
+  std::vector<char*> argv;
+  argv.reserve(command.args_trunc.size() + 1);
+  for (auto& s : command.args_trunc) {
+    argv.push_back(const_cast<char*>(s.c_str()));
+  }
+  argv.push_back(nullptr);
 
-  return 1;
+  // use execvp so PATH is searched automatically
+  execvp(argv[0], argv.data());
+
+  // if we get here, exec failed
+  std::perror("execvp");
+  _exit(127); // POSIX convention for "command not found" / exec failed
+
+  // // --- parent process ---
+  // int status = 0;
+  // if (waitpid(pid, &status, 0) < 0) {
+  //   command.get_err_stream() << "waitpid failed\n";
+  //   return 1;
+  // }
+  //
+  // if (WIFEXITED(status))
+  //   return WEXITSTATUS(status);
+  // if (WIFSIGNALED(status))
+  //   return 128 + WTERMSIG(status);
+  //
+  // return 1;
 }
 
 
@@ -275,28 +251,52 @@ string find_exe(const string &stem) {
 }
 
 void handle_echo(Command& command) {
-  auto &os = command.get_out_stream();
-  if (!command.pipe_in_path.empty()) {
+  if (command.in_fd != STDIN_FILENO && dup2(command.in_fd, STDIN_FILENO) < 0) {
+    std::perror("dup2 stdin");
+    _exit(1);
+  }
+  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
+    std::perror("dup2 stdout");
+    _exit(1);
+  }
+  if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
+    std::perror("dup2 stderr");
+    _exit(1);
+  }
+  command.close_all_fds();
+
+  if (command.in_fd != STDIN_FILENO) {
     string output;
-    std::getline(command.get_in_stream(), output);
-    os << output;
+    std::getline(std::cin, output);
+    std::cout << output;
   }
   else {
     auto it = command.args_trunc.begin() + 1;
     while (it != command.args_trunc.end()) {
-      os << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
+      std::cout << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
       ++it;
     }
   }
-  os << '\n';
+  std::cout << '\n';
 }
 
 void handle_pwd(Command& command) {
-  command.get_out_stream() << fs::current_path().string() << '\n';
+  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
+    std::perror("dup2 stdout");
+    _exit(1);
+  }
+  command.close_all_fds();
+  std::cout << fs::current_path().string() << '\n';
 }
 
-void handle_cd(Command& args_parser) {
-  string path_str = args_parser.args[1];
+void handle_cd(Command& command) {
+  if (command.err_fd != STDERR_FILENO && dup2(command.err_fd, STDERR_FILENO) < 0) {
+    std::perror("dup2 stderr");
+    _exit(1);
+  }
+  command.close_all_fds();
+
+  string path_str = command.args[1];
   if (const auto tilde_pos = path_str.find('~'); tilde_pos != string::npos) {
     const auto home_path_str = std::getenv("HOME");
     path_str = path_str.replace(tilde_pos, 1, home_path_str);
@@ -304,20 +304,26 @@ void handle_cd(Command& args_parser) {
   if (const fs::path cd_path(path_str); fs::exists(cd_path))
     fs::current_path(cd_path);
   else
-    args_parser.get_err_stream() << "cd: " << path_str << ": No such file or directory\n";
+    std::cerr << "cd: " << path_str << ": No such file or directory\n";
 }
 
-void handle_type(Command& args_parser) {
-  const string &arg = args_parser.args[1];
+void handle_type(Command& command) {
+  if (command.out_fd!= STDOUT_FILENO && dup2(command.out_fd, STDOUT_FILENO) < 0) {
+    std::perror("dup2 stdout");
+    _exit(1);
+  }
+  command.close_all_fds();
+
+  const string &arg = command.args[1];
   if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
-    args_parser.get_out_stream() << arg << " is a shell builtin\n";
+    std::cout << arg << " is a shell builtin\n";
     return;
   }
 
   if (const auto exe_path = find_exe(arg); exe_path.empty())
-    args_parser.get_out_stream() << arg << ": not found\n";
+    std::cout << arg << ": not found\n";
   else
-    args_parser.get_out_stream() << arg << " is " << exe_path << '\n';
+    std::cout << arg << " is " << exe_path << '\n';
 }
 
 static char* command_generator(const char* text, const int state) {
@@ -359,12 +365,21 @@ int main() {
   std::cerr << std::unitbuf;
 
   while (true) {
+    vector<pid_t> pids_to_wait;
     for (ArgsParser args_parser(readline("$ ")); auto& command: args_parser.pipeline) {
       if (command.args_trunc[0] == "exit") {
         int exit_status = 0;
         if (command.args_trunc.size() > 1)
           exit_status = std::stoi(command.args_trunc[1]);
         return exit_status;
+      }
+
+      pid_t pid = fork();
+      if (pid < 0) std::cerr << "failed to fork\n";
+      if (pid > 0) {
+        pids_to_wait.emplace_back(pid);
+        command.close_all_fds();
+        continue;
       }
 
       if (command.args_trunc[0] == "pwd")
@@ -379,7 +394,18 @@ int main() {
         run_external(command);
       }
       else
-        command.get_out_stream() << command.args[0] << ": command not found\n";
+        std::cout << command.args[0] << ": command not found\n";
+
+      return 0;
+    }
+    // wait for all pids to finish
+    for (const auto curr_pid : pids_to_wait) {
+      int status = 0;
+      waitpid(curr_pid, &status, 0);
+      if (status < 0) {
+        std::cerr << "something run with process pipelining";
+        return 1;
+      }
     }
   }
 }
