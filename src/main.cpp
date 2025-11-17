@@ -335,8 +335,16 @@ int main() {
   std::cerr << std::unitbuf;
 
   while (true) {
+    char* line = readline("$ ");
+    if (!line) break; // EOF
+
+    if (*line == '\0') { free(line); continue; }
+
+    ArgsParser args_parser(line);
+    free(line);
+
     vector<pid_t> pids_to_wait;
-    for (ArgsParser args_parser(readline("$ ")); auto& command: args_parser.pipeline) {
+    for (auto& command: args_parser.pipeline) {
       if (command.args_trunc[0] == "exit") {
         int exit_status = 0;
         if (command.args_trunc.size() > 1)
