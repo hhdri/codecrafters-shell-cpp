@@ -2,6 +2,7 @@
 #include <string>
 #include <cstring>
 #include <ranges>
+#include <utility>
 #include <vector>
 #include <filesystem>
 #include <fstream>
@@ -15,9 +16,6 @@ using std::string, std::vector;
 
 namespace fs = std::filesystem;
 
-constexpr auto pipe_in_filename = "/tmp/shell_pipe_in";
-constexpr auto pipe_out_filename = "/tmp/shell_pipe_out";
-
 class Command {
   std::ofstream out_file, err_file;
   std::ifstream in_file;
@@ -25,9 +23,7 @@ public:
   vector<string> args, args_trunc;
   string out_filename, err_filename, in_filename;
   bool out_append = false, err_append = false;
-  // std::ostream *out_stream, *err_stream;
-  // std::istream *in_stream;
-  bool pipe_in, pipe_out;
+  string pipe_in_path, pipe_out_path;
 
   std::ostream& get_out_stream() {
     if (!out_filename.empty()) return out_file;
@@ -42,15 +38,15 @@ public:
     return std::cin;
   }
 
-  explicit Command(vector<string> args, const bool pipe_in=false, const bool pipe_out=false)
-  : args(std::move(args)), pipe_in(pipe_in), pipe_out(pipe_out) {
+  explicit Command(vector<string> args, string pipe_in_path="", string pipe_out_path="")
+  : args(std::move(args)), pipe_in_path(std::move(pipe_in_path)), pipe_out_path(std::move(pipe_out_path)) {
     process();
   }
 
 private:
   void process() {
-    if (pipe_in) {
-      in_filename = pipe_in_filename;
+    if (!pipe_in_path.empty()) {
+      in_filename = pipe_in_path;
       in_file.open(in_filename, std::ios::in);
     }
 
@@ -68,8 +64,8 @@ private:
       out_filename = *(redir_out_append_idx + 1);
       out_append = true;
     }
-    if (pipe_out && out_filename.empty())
-      out_filename = pipe_out_filename;
+    if (!pipe_out_path.empty() && out_filename.empty())
+      out_filename = pipe_out_path;
 
     const auto redir_err_idx = std::ranges::find(args, "2>");
     if (redir_err_idx < args.end() - 1)
@@ -153,8 +149,8 @@ private:
     for (int i = 0; i < pipeline_args.size(); ++i) {
       pipeline.emplace_back(
         pipeline_args[i],
-        i>0,
-        i<pipeline_args.size()-1
+        i > 0 ? "/tmp/shell_" + std::to_string(i-1) : "",  // TODO: cleanup pipe files after command destruction
+        i < pipeline_args.size() - 1 ? "/tmp/shell_" + std::to_string(i) : ""
       );
     }
   }
@@ -280,7 +276,7 @@ string find_exe(const string &stem) {
 
 void handle_echo(Command& command) {
   auto &os = command.get_out_stream();
-  if (command.pipe_in) {
+  if (!command.pipe_in_path.empty()) {
     string output;
     std::getline(command.get_in_stream(), output);
     os << output;
@@ -384,9 +380,6 @@ int main() {
       }
       else
         command.get_out_stream() << command.args[0] << ": command not found\n";
-
-      if (fs::exists(pipe_out_filename))
-        fs::rename(pipe_out_filename, pipe_in_filename);
     }
   }
 }
