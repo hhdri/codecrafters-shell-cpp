@@ -202,7 +202,8 @@ int run_external(Command& command) {
   execvp(argv[0], argv.data());
 
   // if we get here, exec failed
-  std::perror("execvp");
+  // std::perror("execvp");
+  std::cerr << command.args[0] << ": command not found\n";
   _exit(127); // POSIX convention for "command not found" / exec failed
 }
 
@@ -361,11 +362,8 @@ int main() {
         handle_echo(command);
       else if (command.args_trunc[0] == "type")
         handle_type(command);
-      else if (!find_exe(command.args_trunc[0]).empty()) {
-        run_external(command);
-      }
       else
-        std::cout << command.args[0] << ": command not found\n";
+        run_external(command);
 
       return 0;
     }
