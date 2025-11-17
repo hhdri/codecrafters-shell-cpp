@@ -263,14 +263,15 @@ void handle_echo(Command& command) {
     std::perror("dup2 stderr");
     _exit(1);
   }
-  command.close_all_fds();
 
   if (command.in_fd != STDIN_FILENO) {
+    command.close_all_fds();
     string output;
     std::getline(std::cin, output);
     std::cout << output;
   }
   else {
+    command.close_all_fds();
     auto it = command.args_trunc.begin() + 1;
     while (it != command.args_trunc.end()) {
       std::cout << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
