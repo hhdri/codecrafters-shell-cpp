@@ -6,8 +6,8 @@
 #include <vector>
 #include <filesystem>
 #include <fstream>
-#include <unistd.h>      // fork, execvp
-#include <sys/wait.h>    // waitpid, WIFEXITED, etc.
+#include <unistd.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <tuple>
 #include <algorithm>
@@ -16,7 +16,6 @@
 #include <readline/history.h>
 
 using std::string, std::vector;
-
 namespace fs = std::filesystem;
 
 class Command {
@@ -25,24 +24,22 @@ public:
   int in_fd = STDIN_FILENO, out_fd = STDOUT_FILENO, err_fd = STDERR_FILENO;
   int pipe_in_fd = -1, pipe_out_fd = -1;
 
-  explicit Command(vector<string> args, const int pipe_in_fd=-1, const int pipe_out_fd=-1)
+  explicit Command(vector<string> args, const int pipe_in_fd, const int pipe_out_fd)
   : args(std::move(args)), pipe_in_fd(pipe_in_fd), pipe_out_fd(pipe_out_fd) {
     process();
   }
 
   void close_all_fds() noexcept {
-    // Collect them in a temporary array.
     int fds[] = { in_fd, out_fd, err_fd, pipe_in_fd, pipe_out_fd };
 
     std::ranges::sort(fds);
 
     int last = -1;
     for (const int fd : fds) {
-      if (fd < 0)              continue;        // invalid
-      if (fd <= STDERR_FILENO) continue;    // 0,1,2 → leave them alone
-      if (fd == last)          continue;        // avoid double close
-      if (close(fd) == -1)
-        std::perror("File close error");
+      if (fd < 0) continue;
+      if (fd <= STDERR_FILENO) continue;
+      if (fd == last) continue;
+      if (close(fd) == -1) std::perror("File close error");
       last = fd;
     }
 
@@ -51,6 +48,9 @@ public:
 
 private:
   void process() {
+    constexpr int flags_trunc = O_WRONLY | O_CREAT | O_TRUNC;
+    constexpr int flags_append = O_WRONLY | O_CREAT | O_APPEND;
+
     if (pipe_in_fd != -1)
       in_fd = pipe_in_fd;
 
@@ -59,34 +59,26 @@ private:
       std::ranges::find(args, "1>")
     );
     auto min_redir_idx = redir_idx;
-    if (redir_idx < args.end() - 1) {
-      constexpr int flags = O_WRONLY | O_CREAT | O_TRUNC;
-      out_fd = open((redir_idx + 1)->c_str(), flags, 0666);
-    }
+    if (redir_idx < args.end() - 1)
+      out_fd = open((redir_idx + 1)->c_str(), flags_trunc, 0666);
     redir_idx = std::min(
       std::ranges::find(args, ">>"),
       std::ranges::find(args, "1>>")
     );
     min_redir_idx = std::min(min_redir_idx, redir_idx);
-    if (redir_idx < args.end() - 1) {
-      constexpr int flags = O_WRONLY | O_CREAT | O_APPEND;
-      out_fd = open((redir_idx + 1)->c_str(), flags, 0666);
-    }
+    if (redir_idx < args.end() - 1)
+      out_fd = open((redir_idx + 1)->c_str(), flags_append, 0666);
     if (pipe_out_fd != -1 && out_fd == 1)
       out_fd = pipe_out_fd;
 
     redir_idx = std::ranges::find(args, "2>");
     min_redir_idx = std::min(min_redir_idx, redir_idx);
-    if (redir_idx < args.end() - 1) {
-      constexpr int flags = O_WRONLY | O_CREAT | O_TRUNC;
-      err_fd = open((redir_idx + 1)->c_str(), flags, 0666);
-    }
+    if (redir_idx < args.end() - 1)
+      err_fd = open((redir_idx + 1)->c_str(), flags_trunc, 0666);
     redir_idx = std::ranges::find(args, "2>>");
     min_redir_idx = std::min(min_redir_idx, redir_idx);
-    if (redir_idx < args.end() - 1) {
-      constexpr int flags = O_WRONLY | O_CREAT | O_APPEND;
-      err_fd = open((redir_idx + 1)->c_str(), flags, 0666);
-    }
+    if (redir_idx < args.end() - 1)
+      err_fd = open((redir_idx + 1)->c_str(), flags_append, 0666);
 
     for (auto i = args.begin(); i < min_redir_idx; ++i)
       args_trunc.emplace_back(*i);
@@ -107,15 +99,14 @@ private:
     bool ongoing_double_quote = false;
     while (it != args_str.end()) {
       if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
-        args[args.size() - 1] += *(++it);
+        args.back() += *++it;
         ++it;
       }
       else if (*it == '\\' && ongoing_double_quote) {
         ++it;
         if (*it != '\"' && *it != '\\' && *it != '$' && *it != '`')
-          args[args.size() - 1] += '\\';
-        args[args.size() - 1] += *it;
-        ++it;
+          args.back() += '\\';
+        args.back() += *it++;
       }
       else if (*it == '\'' && !ongoing_double_quote) {
         ongoing_single_quote = !ongoing_single_quote;
@@ -127,24 +118,19 @@ private:
       }
       else if (*it == ' ' && !ongoing_single_quote && !ongoing_double_quote) {
         args.emplace_back("");
-        while (it != args_str.end() && *it == ' ')
-          ++it;
+        while (it != args_str.end() && *it == ' ') ++it;
       }
-      else {
-        args[args.size() - 1] += *it;
-        ++it;
-      }
+      else
+        args.back() += *it++;
     }
   }
   void build_pipeline() {
-    vector<vector<string>> pipeline_args;
-    pipeline_args.emplace_back();
-    for (const auto& arg_part: args) {
+    vector<vector<string>> pipeline_args(1);
+    for (const auto& arg_part: args)
       if (arg_part == "|")
         pipeline_args.emplace_back();
       else
         pipeline_args.back().emplace_back(arg_part);
-    }
 
     vector<std::tuple<int, int>> fds_pipes;
     for (int i = 0; i < pipeline_args.size() - 1; i++) {
@@ -152,8 +138,6 @@ private:
       pipe(fds);
       fds_pipes.emplace_back(fds[0], fds[1]);
     }
-    // close(std::get<0>(fds_pipes.front()));
-    // close(std::get<1>(fds_pipes.back()));
 
     pipeline.reserve(pipeline_args.size());
     for (int i = 0; i < pipeline_args.size(); ++i) {
@@ -193,16 +177,13 @@ int run_external(Command& command) {
 
   std::vector<char*> argv;
   argv.reserve(command.args_trunc.size() + 1);
-  for (auto& s : command.args_trunc) {
+  for (auto& s : command.args_trunc)
     argv.push_back(const_cast<char*>(s.c_str()));
-  }
   argv.push_back(nullptr);
 
-  // use execvp so PATH is searched automatically
   execvp(argv[0], argv.data());
 
   // if we get here, exec failed
-  // std::perror("execvp");
   std::cerr << command.args[0] << ": command not found\n";
   _exit(127); // POSIX convention for "command not found" / exec failed
 }
@@ -213,12 +194,11 @@ vector<fs::directory_entry> find_all_exes() {
 
   const string path = std::getenv("PATH");
   vector<string> pathParts{""};
-  for (const char pathChar: path) {
+  for (const char pathChar: path)
     if (pathChar == ':')
       pathParts.emplace_back("");
     else
       pathParts.back() += pathChar;
-  }
 
   std::error_code ec;
   for (const auto& pathPart: pathParts) {
@@ -243,7 +223,7 @@ string find_exe(const string &stem) {
 }
 
 void handle_echo(Command& command) {
-  auto read_stdin = command.in_fd != STDIN_FILENO;
+  const auto read_stdin = command.in_fd != STDIN_FILENO;
 
   setup_stdio(command);
 
@@ -254,10 +234,8 @@ void handle_echo(Command& command) {
   }
   else {
     auto it = command.args_trunc.begin() + 1;
-    while (it != command.args_trunc.end()) {
-      std::cout << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
-      ++it;
-    }
+    while (it != command.args_trunc.end())
+      std::cout << *it << (it++ == command.args_trunc.end() - 1 ? "" : " ");
   }
   std::cout << '\n';
 }
@@ -296,22 +274,18 @@ void handle_type(Command& command) {
 }
 
 void handle_history(Command& command, vector<string>& history, size_t& history_saved_until) {
-  setup_stdio(command);
-
   if (command.args_trunc[1] == "-r" && command.args_trunc.size() >= 3) {
     std::ifstream history_file(command.args_trunc[2]);
     string line;
-    while (std::getline(history_file, line)) {
+    while (std::getline(history_file, line))
       if (!line.empty())
         history.emplace_back(line);
-    }
     return;
   }
   if (command.args_trunc[1] == "-w" && command.args_trunc.size() >= 3) {
     std::ofstream history_file(command.args_trunc[2]);
-    for (const auto& line : history) {
+    for (const auto& line : history)
       history_file << line << '\n';
-    }
     history_saved_until = history.size() - 1;
     return;
   }
