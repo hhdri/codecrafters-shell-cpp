@@ -171,7 +171,7 @@ public:
   }
 };
 
-int setup_stdio(const Command &command) {
+int setup_stdio(Command &command) {
   if (command.in_fd != STDIN_FILENO && dup2(command.in_fd, STDIN_FILENO) < 0) {
     std::perror("dup2 stdin");
     return -1;
@@ -184,12 +184,12 @@ int setup_stdio(const Command &command) {
     std::perror("dup2 stderr");
     return -1;
   }
+  command.close_all_fds();
   return 0;
 }
 
 int run_external(Command& command) {
   setup_stdio(command);
-  command.close_all_fds();
 
   std::vector<char*> argv;
   argv.reserve(command.args_trunc.size() + 1);
@@ -243,16 +243,16 @@ string find_exe(const string &stem) {
 }
 
 void handle_echo(Command& command) {
+  auto read_stdin = command.in_fd != STDIN_FILENO;
+
   setup_stdio(command);
 
-  if (command.in_fd != STDIN_FILENO) {
-    command.close_all_fds();
+  if (read_stdin) {
     string output;
     std::getline(std::cin, output);
     std::cout << output;
   }
   else {
-    command.close_all_fds();
     auto it = command.args_trunc.begin() + 1;
     while (it != command.args_trunc.end()) {
       std::cout << *it << (it == command.args_trunc.end() - 1 ? "" : " ");
@@ -264,7 +264,6 @@ void handle_echo(Command& command) {
 
 void handle_pwd(Command& command) {
   setup_stdio(command);
-  command.close_all_fds();
   std::cout << fs::current_path().string() << '\n';
 }
 
@@ -282,7 +281,6 @@ void handle_cd(const Command& command) {
 
 void handle_type(Command& command) {
   setup_stdio(command);
-  command.close_all_fds();
 
   const string &arg = command.args[1];
   // TODO: do the following in a more structured way
@@ -299,9 +297,8 @@ void handle_type(Command& command) {
 
 void handle_history(Command& command, vector<string>& history, size_t& history_saved_until) {
   setup_stdio(command);
-  command.close_all_fds();
 
-  if (command.args_trunc[1] == "-r" && command.args_trunc.size() >= 3) { // TODO: do this in a better way
+  if (command.args_trunc[1] == "-r" && command.args_trunc.size() >= 3) {
     std::ifstream history_file(command.args_trunc[2]);
     string line;
     while (std::getline(history_file, line)) {
