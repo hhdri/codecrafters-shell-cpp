@@ -301,8 +301,15 @@ void handle_history(Command& command, const vector<string>& history) {
   setup_stdio(command);
   command.close_all_fds();
 
-  int index = 1;
-  for (const auto& elem: history) {
+  auto last_n = history.size();
+  if (command.args_trunc.size() > 1) {
+    if (int arg; (arg = std::stoi(command.args_trunc[1]))) {
+      last_n = arg;
+    }
+  }
+
+  auto index = history.size() - last_n + 1;
+  for (const auto& elem: history | std::views::drop(history.size() - last_n)) {
     std::cout << "    " << index++ << "  " <<  elem << '\n';
   }
 }
