@@ -316,7 +316,6 @@ void handle_history(Command& command, vector<string>& history) {
     for (const auto& line : history) {
       history_file << line << '\n';
     }
-    history_file << '\n';
     return;
   }
   auto last_n = history.size();
