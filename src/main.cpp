@@ -298,7 +298,7 @@ void handle_type(Command& command) {
     std::cout << arg << " is " << exe_path << '\n';
 }
 
-void handle_history(Command& command, vector<string>& history) {
+void handle_history(Command& command, vector<string>& history, size_t& history_saved_until) {
   setup_stdio(command);
   command.close_all_fds();
 
@@ -311,11 +311,20 @@ void handle_history(Command& command, vector<string>& history) {
     }
     return;
   }
-  if ((command.args_trunc[1] == "-w" || command.args_trunc[1] == "-a") && command.args_trunc.size() >= 3) {
-    std::ofstream history_file(command.args_trunc[2], command.args_trunc[1] == "-w" ? std::ios::out : std::ios::app);
+  if (command.args_trunc[1] == "-w" && command.args_trunc.size() >= 3) {
+    std::ofstream history_file(command.args_trunc[2]);
     for (const auto& line : history) {
       history_file << line << '\n';
     }
+    history_saved_until = history.size() - 1;
+    return;
+  }
+  if (command.args_trunc[1] == "-a" && command.args_trunc.size() >= 3) {
+    std::ofstream history_file(command.args_trunc[2], std::ios::app);
+    for (const auto& line : history | std::views::drop(history_saved_until + 1)) {
+      history_file << line << '\n';
+    }
+    history_saved_until = history.size() - 1;
     return;
   }
   auto last_n = history.size();
@@ -370,6 +379,7 @@ int main() {
   std::cerr << std::unitbuf;
 
   vector<string> history;
+  size_t history_saved_until = -1;
 
   while (true) {
     char* line = readline("$ ");
@@ -399,7 +409,7 @@ int main() {
         continue;
       }
       if (command.args_trunc[0] == "history") {
-        handle_history(command, history);
+        handle_history(command, history, history_saved_until);
         continue;
       }
 
