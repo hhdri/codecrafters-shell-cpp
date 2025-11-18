@@ -342,6 +342,8 @@ char** character_name_completion(const char* text, const int start, const int en
 }
 
 int main() {
+  signal(SIGINT, SIG_IGN); // ignore interrupt signals on the shell itself
+
   rl_attempted_completion_function = character_name_completion;
 
   // Flush after every std::cout / std:cerr
@@ -408,6 +410,7 @@ int main() {
         continue;
       }
 
+      signal(SIGINT, SIG_DFL); // in processes dispatched by shell stop ignoring interrupt signal
       if (command.args_trunc[0] == "pwd")
         handle_pwd(command);
       else if (command.args_trunc[0] == "echo")
