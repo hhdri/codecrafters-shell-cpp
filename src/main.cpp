@@ -38,9 +38,9 @@ public:
 
     int last = -1;
     for (const int fd : fds) {
-      if (fd < 0)          continue;        // invalid
+      if (fd < 0)              continue;        // invalid
       if (fd <= STDERR_FILENO) continue;    // 0,1,2 → leave them alone
-      if (fd == last)      continue;        // avoid double close
+      if (fd == last)          continue;        // avoid double close
       if (close(fd) == -1)
         std::perror("File close error");
       last = fd;
@@ -51,9 +51,8 @@ public:
 
 private:
   void process() {
-    if (pipe_in_fd != -1) {
+    if (pipe_in_fd != -1)
       in_fd = pipe_in_fd;
-    }
 
     auto redir_idx = std::min(
       std::ranges::find(args, ">"),
@@ -106,7 +105,7 @@ private:
     auto it = args_str.begin();
     bool ongoing_single_quote = false;
     bool ongoing_double_quote = false;
-    do {  // TODO: if args are empty this results to segfault
+    while (it != args_str.end()) {
       if (*it == '\\' && !ongoing_single_quote && !ongoing_double_quote) {
         args[args.size() - 1] += *(++it);
         ++it;
@@ -135,7 +134,7 @@ private:
         args[args.size() - 1] += *it;
         ++it;
       }
-    } while (it != args_str.end());
+    }
   }
   void build_pipeline() {
     vector<vector<string>> pipeline_args;
