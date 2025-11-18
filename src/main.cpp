@@ -297,9 +297,14 @@ void handle_type(Command& command) {
     std::cout << arg << " is " << exe_path << '\n';
 }
 
-void handle_history(Command& command) {
+void handle_history(Command& command, const vector<string>& history) {
   setup_stdio(command);
   command.close_all_fds();
+
+  int index = 1;
+  for (const auto& elem: history) {
+    std::cout << "    " << index++ << "  " <<  elem << '\n';
+  }
 }
 
 static char* command_generator(const char* text, const int state) {
@@ -340,11 +345,15 @@ int main() {
   std::cout << std::unitbuf;
   std::cerr << std::unitbuf;
 
+  vector<string> history;
+
   while (true) {
     char* line = readline("$ ");
     if (!line) break; // EOF
 
     if (*line == '\0') { free(line); continue; }
+
+    history.emplace_back(line);
 
     ArgsParser args_parser(line);
     free(line);
@@ -375,7 +384,7 @@ int main() {
       else if (command.args_trunc[0] == "echo")
         handle_echo(command);
       else if (command.args_trunc[0] == "history")
-        handle_history(command);
+        handle_history(command, history);
       else if (command.args_trunc[0] == "type")
         handle_type(command);
       else
