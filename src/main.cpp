@@ -311,6 +311,14 @@ void handle_history(Command& command, vector<string>& history) {
     }
     return;
   }
+  if (command.args_trunc[1] == "-w" && command.args_trunc.size() >= 3) { // TODO: do this in a better way
+    std::ofstream history_file(command.args_trunc[2]);
+    for (const auto& line : history) {
+      history_file << line << '\n';
+    }
+    history_file << '\n';
+    return;
+  }
   auto last_n = history.size();
   if (command.args_trunc.size() > 1) {
     if (int arg; (arg = std::stoi(command.args_trunc[1]))) {
