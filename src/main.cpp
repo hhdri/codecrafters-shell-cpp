@@ -395,7 +395,9 @@ int main() {
     char* line = readline("$ ");
     if (!line) break; // EOF
 
-    if (*line == '\0') { free(line); continue; }
+    if (*line == '\0') {
+      free(line); continue;
+    }
 
     add_history(line);
 
