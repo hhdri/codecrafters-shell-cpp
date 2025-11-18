@@ -381,6 +381,15 @@ int main() {
   vector<string> history;
   size_t history_saved_until = -1;
 
+  if (auto env_hist_file_path = std::getenv("HISTFILE"); env_hist_file_path != nullptr) {
+    std::ifstream history_file(env_hist_file_path);
+    string line;
+    while (std::getline(history_file, line))
+      if (!line.empty())
+        history.emplace_back(line);
+    history_saved_until = history.size() - 1;
+  }
+
   while (true) {
     char* line = readline("$ ");
     if (!line) break; // EOF
