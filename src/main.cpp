@@ -285,7 +285,8 @@ void handle_type(Command& command) {
   command.close_all_fds();
 
   const string &arg = command.args[1];
-  if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd") {
+  // TODO: do the following in a more structured way
+  if (arg == "exit" || arg == "echo" || arg == "type" || arg == "pwd" || arg == "history") {
     std::cout << arg << " is a shell builtin\n";
     return;
   }
@@ -294,6 +295,11 @@ void handle_type(Command& command) {
     std::cout << arg << ": not found\n";
   else
     std::cout << arg << " is " << exe_path << '\n';
+}
+
+void handle_history(Command& command) {
+  setup_stdio(command);
+  command.close_all_fds();
 }
 
 static char* command_generator(const char* text, const int state) {
@@ -368,6 +374,8 @@ int main() {
         handle_pwd(command);
       else if (command.args_trunc[0] == "echo")
         handle_echo(command);
+      else if (command.args_trunc[0] == "history")
+        handle_history(command);
       else if (command.args_trunc[0] == "type")
         handle_type(command);
       else
