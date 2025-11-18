@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include <readline/readline.h>
+#include <readline/history.h>
 
 using std::string, std::vector;
 
@@ -360,6 +361,8 @@ int main() {
 
     if (*line == '\0') { free(line); continue; }
 
+    add_history(line);
+
     history.emplace_back(line);
 
     ArgsParser args_parser(line);
@@ -367,6 +370,8 @@ int main() {
 
     vector<pid_t> pids_to_wait;
     for (auto& command: args_parser.pipeline) {
+      if (command.args_trunc.empty()) continue;
+
       if (command.args_trunc[0] == "exit") {
         int exit_status = 0;
         if (command.args_trunc.size() > 1)
