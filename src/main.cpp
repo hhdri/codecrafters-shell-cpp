@@ -298,12 +298,20 @@ void handle_type(Command& command) {
     std::cout << arg << " is " << exe_path << '\n';
 }
 
-void handle_history(Command& command, const vector<string>& history) {
+void handle_history(Command& command, vector<string>& history) {
   setup_stdio(command);
   command.close_all_fds();
 
   auto last_n = history.size();
-  if (command.args_trunc.size() > 1) {
+
+  if (command.args_trunc[1] == "-r" && command.args_trunc.size() >= 3) { // TODO: do this in a better way
+    std::ifstream history_file(command.args_trunc[2]);
+    string line;
+    while (std::getline(history_file, line) && !line.empty())
+      history.emplace_back(line);
+    last_n = history.size();
+  }
+  else if (command.args_trunc.size() > 1) {
     if (int arg; (arg = std::stoi(command.args_trunc[1]))) {
       last_n = arg;
     }
