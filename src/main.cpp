@@ -311,8 +311,8 @@ void handle_history(Command& command, vector<string>& history) {
     }
     return;
   }
-  if (command.args_trunc[1] == "-w" && command.args_trunc.size() >= 3) { // TODO: do this in a better way
-    std::ofstream history_file(command.args_trunc[2]);
+  if ((command.args_trunc[1] == "-w" || command.args_trunc[1] == "-a") && command.args_trunc.size() >= 3) {
+    std::ofstream history_file(command.args_trunc[2], command.args_trunc[1] == "-w" ? std::ios::out : std::ios::app);
     for (const auto& line : history) {
       history_file << line << '\n';
     }
