@@ -381,7 +381,8 @@ int main() {
   vector<string> history;
   size_t history_saved_until = -1;
 
-  if (auto env_hist_file_path = std::getenv("HISTFILE"); env_hist_file_path != nullptr) {
+  auto env_hist_file_path = std::getenv("HISTFILE");
+  if (env_hist_file_path != nullptr) {
     std::ifstream history_file(env_hist_file_path);
     string line;
     while (std::getline(history_file, line))
@@ -411,6 +412,11 @@ int main() {
         int exit_status = 0;
         if (command.args_trunc.size() > 1)
           exit_status = std::stoi(command.args_trunc[1]);
+        if (env_hist_file_path != nullptr) {
+          std::ofstream history_file(env_hist_file_path, std::ios::app);
+          for (const auto& elem : history | std::views::drop(history_saved_until + 1))
+            history_file << elem << '\n';
+        }
         return exit_status;
       }
       if (command.args_trunc[0] == "cd") {
